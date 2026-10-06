@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>Space Blaster MR</title>
+<script src="https://aframe.io/releases/1.7.0/aframe.min.js"></script>
+<style>
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#05070b;color:#fff;font-family:Inter,system-ui,sans-serif}
+#hud{position:fixed;inset:0;pointer-events:none;z-index:10;padding:18px;display:flex;justify-content:space-between;align-items:flex-start}
+.panel{background:rgba(8,12,20,.72);border:1px solid rgba(255,255,255,.14);border-radius:16px;padding:10px 14px;backdrop-filter:blur(12px);min-width:120px}
+.label{font-size:11px;text-transform:uppercase;letter-spacing:.14em;color:#9aa6b2}.value{font-size:24px;font-weight:800;margin-top:2px}
+#center{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:9;pointer-events:none}
+#reticle{width:24px;height:24px;border:2px solid rgba(255,255,255,.9);border-radius:50%;box-shadow:0 0 18px rgba(255,255,255,.4)}
+#message{position:fixed;left:50%;bottom:9%;transform:translateX(-50%);z-index:11;background:rgba(8,12,20,.82);border:1px solid rgba(255,255,255,.15);padding:12px 18px;border-radius:999px;font-weight:700;text-align:center;max-width:85%;pointer-events:none}
+.overlay{position:fixed;inset:0;z-index:30;background:rgba(3,6,12,.92);display:flex;align-items:center;justify-content:center;padding:20px}
+.card{max-width:520px;width:100%;background:#0b111b;border:1px solid rgba(255,255,255,.12);border-radius:24px;padding:28px;box-shadow:0 20px 80px rgba(0,0,0,.45)}
+h1{margin:0 0 8px;font-size:34px}.sub{color:#a9b3bf;line-height:1.5}.btn{width:100%;border:0;border-radius:14px;padding:15px;margin-top:18px;background:#fff;color:#071018;font-size:16px;font-weight:800;cursor:pointer}.hidden{display:none!important}
+</style>
+</head>
+<body>
+<a-scene id="scene" embedded renderer="colorManagement:true; antialias:true; physicallyCorrectLights:true" vr-mode-ui="enabled:false" loading-screen="enabled:false">
+  <a-entity id="camera" camera position="0 1.6 0"></a-entity>
+  <a-entity light="type:ambient; intensity:1"></a-entity>
+</a-scene>
+
+<div id="hud">
+  <div class="panel"><div class="label">Punti</div><div id="score" class="value">0</div></div>
+  <div class="panel"><div class="label">Tempo</div><div id="time" class="value">60</div></div>
+  <div class="panel"><div class="label">Combo</div><div id="combo" class="value">x1</div></div>
+</div>
+<div id="center"><div id="reticle"></div></div>
+<div id="message">Premi AVVIA, poi guarda il pavimento e premi il grilletto per posizionare l'arena.</div>
+
+<div id="start" class="overlay"><div class="card">
+  <h1>SPACE BLASTER MR</h1>
+  <div class="sub">Mixed Reality: la tua stanza resta visibile. Il pavimento reale viene usato come riferimento e i bersagli vengono creati nello spazio davanti a te.</div>
+  <button id="startBtn" class="btn">AVVIA MIXED REALITY</button>
+</div></div>
+
+<div id="end" class="overlay hidden"><div class="card">
+  <h1>MISSIONE COMPLETATA</h1>
+  <div class="sub">Punteggio: <b id="finalScore">0</b><br>Combo migliore: <b id="bestCombo">x1</b><br>Colpi: <b id="shots">0</b> · Centri: <b id="hits">0</b></div>
+  <button id="restartBtn" class="btn">RIGIOCA</button>
+</div></div>
+
+<script>
+(() => {
+  const sceneEl=document.querySelector('#scene');
+  const cameraEl=document.querySelector('#camera');
+  let renderer=null;
+  let camera=null;
+  const THREE=window.THREE;
+  const scoreEl=document.querySelector('#score'), timeEl=document.querySelector('#time'), comboEl=document.querySelector('#combo');
+  const message=document.querySelector('#message');
+  const start=document.querySelector('#start'), end=document.querySelector('#end');
+  const raycaster=new THREE.Raycaster();
+  const targets=new Set(), particles=[];
+  let session=null, hitSource=null, hitSourceRequested=false, floorY=0, calibrated=false;
+  let running=false, startTime=0, score=0, combo=1, bestCombo=1, shots=0, hits=0, spawnClock=0;
+  const duration=60000;
+
+  function setMessage(t){message.textContent=t;}
+  function updateHUD(){scoreEl.textContent=score;timeEl.textContent=Math.max(0,Math.ceil((duration-(performance.now()-startTime))/1000));comboEl.textContent='x'+combo;}
+
+  function makeTarget(pos){
+    const g=new THREE.Group();
+    const geo=new THREE.IcosahedronGeometry(.16,2);
+    const mat=new THREE.MeshStandardMaterial({color:0x38bdf8,emissive:0x075985,emissiveIntensity:1.4,metalness:.2,roughness:.25});
+    const core=new THREE.Mesh(geo,mat);g.add(core);
+    const ring=new THREE.Mesh(new THREE.TorusGeometry(.23,.025,8,32),new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:.75}));
+    g.add(ring);
+    const glow=new THREE.PointLight(0x38bdf8,1.2,.8);g.add(glow);
+    g.position.copy(pos);g.userData.target=true;g.userData.spin=1+Math.random()*2;g.userData.life=0;
+    sceneEl.object3D.add(g);targets.add(g);return g;
+  }
+  function spawnTarget(){
+    const angle=Math.random()*Math.PI*2, radius=1.4+Math.random()*2.1;
+    const height=.55+Math.random()*1.25;
+    const pos=new THREE.Vector3(Math.cos(angle)*radius,floorY+height,Math.sin(angle)*radius);
+    const t=makeTarget(pos);
+    return t;
+  }
+  function clearTargets(){targets.forEach(t=>sceneEl.object3D.remove(t));targets.clear();}
+
+  function burst(pos,color=0x38bdf8){
+    for(let i=0;i<14;i++){
+      const m=new THREE.Mesh(new THREE.SphereGeometry(.018,6,6),new THREE.MeshBasicMaterial({color}));m.position.copy(pos);sceneEl.object3D.add(m);
+      const v=new THREE.Vector3(Math.random()-.5,Math.random()-.5,Math.random()-.5).normalize().multiplyScalar(.8+Math.random()*1.3);particles.push({m,v,life:.45});
+    }
+  }
+  function shoot(controller){
+    if(!running)return;
+    shots++;
+    const origin=new THREE.Vector3(), dir=new THREE.Vector3(0,0,-1);
+    controller.getWorldPosition(origin);dir.applyQuaternion(controller.getWorldQuaternion(new THREE.Quaternion())).normalize();
+    raycaster.set(origin,dir);raycaster.far=15;
+    const hit=raycaster.intersectObjects([...targets],true)[0];
+    if(hit){
+      let t=hit.object;while(t.parent && !t.userData.target)t=t.parent;
+      if(!targets.has(t))return;
+      hits++;score+=100*combo;combo++;bestCombo=Math.max(bestCombo,combo);burst(t.position,0x67e8f9);sceneEl.object3D.remove(t);targets.delete(t);setMessage('COLPITO! +'+(100*(combo-1)));
+      if(controller.gamepad?.hapticActuators?.[0])controller.gamepad.hapticActuators[0].pulse(.5,70);
+    }else{combo=1;setMessage('MANCATO');}
+    updateHUD();
+  }
+
+  function onSelectStart(e){ if(!calibrated){calibrateFromController(e.target);return;} shoot(e.target); }
+  function calibrateFromController(controller){
+    // The actual hit-test is processed in the WebXR frame loop; this marks the next valid hit as calibration.
+    calibrationRequested=true;calibrationController=controller;setMessage('Cerca una superficie reale…');
+  }
+  let calibrationRequested=false,calibrationController=null;
+
+  function setupController(i){
+    const c=renderer.xr.getController(i);c.userData.index=i;c.addEventListener('selectstart',onSelectStart);sceneEl.object3D.add(c);
+    const line=new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0),new THREE.Vector3(0,0,-8)]),new THREE.LineBasicMaterial({color:0x7dd3fc,transparent:true,opacity:.7}));line.name='laser';c.add(line);
+  }
+
+  async function beginXR(){
+    if(!renderer){setMessage('Attendi il caricamento della scena.');return;}
+    if(!navigator.xr){setMessage('Questo browser non supporta WebXR.');return;}
+    try{
+      const supported=await navigator.xr.isSessionSupported('immersive-ar');if(!supported){setMessage('Il visore non supporta immersive-ar.');return;}
+      session=await navigator.xr.requestSession('immersive-ar',{requiredFeatures:['hit-test','local-floor'],optionalFeatures:['dom-overlay','bounded-floor'],domOverlay:{root:document.body}});
+      renderer.xr.enabled=true;await renderer.xr.setSession(session);
+      session.addEventListener('end',()=>{running=false;session=null;hitSource=null;hitSourceRequested=false;});
+      setupController(0);setupController(1);start.classList.add('hidden');calibrated=false;running=false;setMessage('Guarda il pavimento e premi il grilletto per calibrare.');
+    }catch(err){console.error(err);setMessage('Impossibile avviare la Mixed Reality: '+err.message);}
+  }
+
+  function onXRFrame(t,frame){
+    if(!session)return;
+    const refSpace=renderer.xr.getReferenceSpace();
+    if(!hitSourceRequested){
+      session.requestReferenceSpace('viewer').then(rs=>session.requestHitTestSource({space:rs})).then(src=>{hitSource=src}).catch(console.error);
+      hitSourceRequested=true;
+    }
+    if(hitSource && !calibrated){
+      const hitsXR=frame.getHitTestResults(hitSource);
+      if(hitsXR.length){
+        const pose=hitsXR[0].getPose(refSpace);
+        if(pose){
+          const y=pose.transform.position.y;
+          // A calibration request is completed on the next valid real surface.
+          if(calibrationRequested){floorY=y;calibrated=true;calibrationRequested=false;setMessage('Pavimento calibrato. Premi il grilletto per iniziare.');startMatch();}
+        }
+      }
+    }
+  }
+
+  function startMatch(){
+    score=0;combo=1;bestCombo=1;shots=0;hits=0;spawnClock=0;startTime=performance.now();running=true;clearTargets();for(let i=0;i<4;i++)spawnTarget();updateHUD();setMessage('SPARA AI BERSAGLI!');}
+  function finish(){
+    if(!running)return;running=false;clearTargets();document.querySelector('#finalScore').textContent=score;document.querySelector('#bestCombo').textContent='x'+bestCombo;document.querySelector('#shots').textContent=shots;document.querySelector('#hits').textContent=hits;end.classList.remove('hidden');}
+
+  function tick(dt){
+    if(running){
+      const elapsed=performance.now()-startTime;if(elapsed>=duration){finish();return;}
+      const difficulty=1+elapsed/duration;
+      spawnClock-=dt;if(spawnClock<=0){spawnClock=Math.max(.35,1.0-.45*difficulty);if(targets.size<Math.floor(4+3*difficulty))spawnTarget();}
+      targets.forEach(t=>{t.rotation.y+=dt*t.userData.spin;t.rotation.x+=dt*.4;t.userData.life+=dt;const s=1+Math.sin(t.userData.life*4)*.08;t.scale.setScalar(s);});
+      updateHUD();
+    }
+    for(let i=particles.length-1;i>=0;i--){const p=particles[i];p.life-=dt;p.m.position.addScaledVector(p.v,dt);p.v.y-=1.8*dt;if(p.life<=0){sceneEl.object3D.remove(p.m);particles.splice(i,1);}}
+  }
+  let last=performance.now();
+
+  document.querySelector('#startBtn').addEventListener('click',beginXR);
+  document.querySelector('#restartBtn').addEventListener('click',()=>{end.classList.add('hidden');if(session){calibrated=false;running=false;calibrationRequested=false;setMessage('Guarda il pavimento e premi il grilletto per calibrare.');}else beginXR();});
+
+  // A-Frame owns the scene graph; Three.js owns the WebXR render/input path.
+  sceneEl.addEventListener('loaded',()=>{
+    renderer=sceneEl.renderer;
+    camera=cameraEl.getObject3D('camera');
+    renderer.xr.enabled=true;
+    renderer.setAnimationLoop((t,frame)=>{
+      if(frame) onXRFrame(t,frame);
+      const now=performance.now();
+      tick(Math.min(.05,(now-last)/1000));
+      last=now;
+      renderer.render(sceneEl.object3D,camera);
+    });
+  });
+})();
+</script>
+</body>
+</html>
