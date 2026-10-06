@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+  <title>ISISS Arcade — Space Blaster MR</title>
+  <script src="https://aframe.io/releases/1.7.0/aframe.min.js"></script>
+  <style>
+    html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#000;font-family:Inter,system-ui,sans-serif}
+    #hud{position:fixed;z-index:20;top:18px;left:18px;right:18px;display:flex;justify-content:space-between;pointer-events:none;color:#fff}
+    .pill{background:rgba(10,15,25,.72);backdrop-filter:blur(12px);border:1px solid rgba(255,255,255,.16);border-radius:999px;padding:10px 15px;font-weight:700}
+    #help{position:fixed;z-index:20;left:50%;bottom:24px;transform:translateX(-50%);max-width:min(650px,calc(100% - 32px));padding:12px 16px;text-align:center;color:#fff;background:rgba(10,15,25,.76);backdrop-filter:blur(12px);border:1px solid rgba(255,255,255,.14);border-radius:14px;line-height:1.4}
+    #start{position:fixed;z-index:30;inset:0;display:grid;place-items:center;background:linear-gradient(180deg,rgba(3,7,14,.9),rgba(3,7,14,.65));color:#fff}
+    .panel{width:min(520px,calc(100% - 36px));padding:28px;border-radius:24px;background:rgba(12,18,30,.9);border:1px solid rgba(255,255,255,.15);box-shadow:0 18px 70px rgba(0,0,0,.4);text-align:center}
+    h1{margin:0 0 10px;font-size:clamp(28px,6vw,48px)} p{opacity:.8;line-height:1.55}
+    button{border:0;border-radius:13px;padding:14px 22px;font-size:16px;font-weight:800;cursor:pointer;background:#fff;color:#101622}
+    #error{display:none;color:#ffb4b4;margin-top:12px;font-size:14px}
+  </style>
+</head>
+<body>
+  <div id="start">
+    <div class="panel">
+      <div style="font-size:13px;letter-spacing:.14em;text-transform:uppercase;opacity:.65;margin-bottom:10px">ISISS Arcade · Mixed Reality</div>
+      <h1>Space Blaster MR</h1>
+      <p>La tua stanza rimane visibile. I bersagli vengono inseriti nello spazio reale e puoi sparargli con il controller.</p>
+      <button id="enter">Avvia in realtà aumentata</button>
+      <div id="error"></div>
+    </div>
+  </div>
+  <div id="hud"><div class="pill">Punteggio: <span id="score">0</span></div><div class="pill">Bersagli: <span id="left">12</span></div></div>
+  <div id="help">Prima di iniziare guarda il pavimento e premi il grilletto per calibrare il pavimento reale. Poi mira ai bersagli e premi il grilletto per sparare.</div>
+
+  <a-scene
+    id="scene"
+    renderer="colorManagement:true; physicallyCorrectLights:true"
+    vr-mode-ui="enabled:true"
+    webxr="optionalFeatures: hit-test, local-floor, bounded-floor; requiredFeatures: local-floor"
+    embedded>
+    <a-entity id="rig" position="0 0 0">
+      <a-entity id="camera" camera position="0 1.6 0" look-controls="enabled:false"></a-entity>
+      <a-entity id="leftHand" laser-controls="hand:left" raycaster="objects:.target; far:20" line="opacity:.65"></a-entity>
+      <a-entity id="rightHand" laser-controls="hand:right" raycaster="objects:.target; far:20" line="opacity:.8"></a-entity>
+    </a-entity>
+    <a-entity light="type:ambient;intensity:1"></a-entity>
+    <a-entity id="world"></a-entity>
+    <a-ring id="floorReticle" radius-inner="0.10" radius-outer="0.14" rotation="-90 0 0" material="color:#ffffff;shader:flat;opacity:.85;transparent:true" visible="false"></a-ring>
+  </a-scene>
+
+<script>
+(function(){
+  const scene=document.querySelector('#scene');
+  const world=document.querySelector('#world');
+  const reticle=document.querySelector('#floorReticle');
+  const enter=document.querySelector('#enter');
+  const start=document.querySelector('#start');
+  const error=document.querySelector('#error');
+  const help=document.querySelector('#help');
+  const scoreEl=document.querySelector('#score');
+  const leftEl=document.querySelector('#left');
+  const rightHand=document.querySelector('#rightHand');
+  const leftHand=document.querySelector('#leftHand');
+
+  let score=0, remaining=12, targets=[];
+  let session=null, hitTestSource=null, viewerSpace=null, refSpace=null;
+  let floorY=null, calibrated=false, calibrationPose=null, placed=false;
+
+  function makeTarget(x,y,z,i){
+    const t=document.createElement('a-entity');
+    t.classList.add('target');
+    t.setAttribute('position',`${x} ${y} ${z}`);
+    t.setAttribute('geometry','primitive: sphere; radius:.16');
+    t.setAttribute('material','color:#e7eefc; emissive:#557cff; emissiveIntensity:1.4; metalness:.2; roughness:.25');
+    t.dataset.index=i;
+    t.addEventListener('click',()=>hit(t));
+    t.addEventListener('triggerdown',()=>hit(t));
+    world.appendChild(t);
+    targets.push(t);
+    return t;
+  }
+
+  function createTargetsFromFloor(){
+    if(placed || floorY===null) return;
+    placed=true;
+    // Arena centered on the detected real floor point. Heights are relative to the real floor.
+    const spots=[
+      [-1.3,.95,-2.2],[0,.72,-2.8],[1.4,1.05,-2.1],[-1.8,.55,-3.4],
+      [1.9,.65,-3.5],[-.7,1.55,-3.8],[.8,1.75,-3.7],[-2.2,1.25,-4.2],
+      [2.3,1.35,-4.3],[-1.2,.25,-3.0],[.3,.45,-4.1],[1.4,.35,-3.1]
+    ];
+    spots.forEach((p,i)=>makeTarget(p[0],floorY+p[1],p[2],i));
+    reticle.setAttribute('visible','false');
+    help.textContent='Pavimento rilevato. Mira ai bersagli e premi il grilletto per colpirli.';
+  }
+
+  function hit(t){
+    if(!t||t.dataset.hit)return;
+    t.dataset.hit='1'; score+=100; remaining--;
+    scoreEl.textContent=score; leftEl.textContent=remaining;
+    t.setAttribute('animation__hit','property:scale;to:0.01 0.01 0.01;dur:160;easing:easeInQuad');
+    setTimeout(()=>t.remove(),170);
+    if(remaining===0) help.textContent='Missione completata! Punteggio: '+score;
+  }
+
+  function setReticleFromHit(pose){
+    const p=pose.transform.position;
+    reticle.object3D.position.set(p.x,p.y+0.012,p.z);
+    reticle.setAttribute('visible','true');
+  }
+
+  function isFloorHit(pose){
+    // The hit normal is the local +Y axis of the hit pose. A mostly-upward normal is floor-like.
+    const q=pose.transform.orientation;
+    const quat=new THREE.Quaternion(q.x,q.y,q.z,q.w);
+    const normal=new THREE.Vector3(0,1,0).applyQuaternion(quat);
+    return normal.y>0.65;
+  }
+
+  function onSelect(){
+    if(!session || calibrated) return;
+    // Calibration is intentionally explicit: the player looks at the floor and presses the trigger.
+    if(calibrationPose && isFloorHit(calibrationPose)){
+      floorY=calibrationPose.transform.position.y;
+      calibrated=true;
+      createTargetsFromFloor();
+    }else{
+      help.textContent='Non vedo una superficie orizzontale. Guarda meglio il pavimento e riprova.';
+    }
+  }
+
+  async function setupHitTest(s){
+    try{
+      refSpace=await s.requestReferenceSpace('local-floor');
+      viewerSpace=await s.requestReferenceSpace('viewer');
+      hitTestSource=await s.requestHitTestSource({space:viewerSpace});
+    }catch(e){
+      hitTestSource=null;
+      help.textContent='Il rilevamento del pavimento non è disponibile su questo browser. Prova un browser WebXR aggiornato.';
+    }
+  }
+
+  function renderXR(time,frame){
+    if(session && frame && hitTestSource && !calibrated){
+      const results=frame.getHitTestResults(hitTestSource);
+      calibrationPose=null;
+      for(const result of results){
+        const pose=result.getPose(refSpace);
+        if(pose && isFloorHit(pose)){
+          calibrationPose=pose;
+          setReticleFromHit(pose);
+          break;
+        }
+      }
+    }
+    if(session) session.requestAnimationFrame(renderXR);
+  }
+
+  async function startAR(){
+    error.style.display='none';
+    if(!navigator.xr){error.textContent='Questo browser non espone WebXR. Usa un browser del visore compatibile e apri il sito in HTTPS.';error.style.display='block';return;}
+    try{
+      const supported=await navigator.xr.isSessionSupported('immersive-ar');
+      if(!supported) throw new Error('La modalità realtà aumentata (immersive-ar) non è supportata da questo dispositivo/browser.');
+      session=await navigator.xr.requestSession('immersive-ar',{
+        requiredFeatures:['local-floor'],
+        optionalFeatures:['hit-test','bounded-floor']
+      });
+      scene.renderer.xr.setSession(session);
+      start.style.display='none';
+      help.textContent='Calibrazione: guarda il pavimento. Quando compare l’anello, premi il grilletto.';
+      session.addEventListener('select',onSelect);
+      session.addEventListener('end',()=>{
+        session=null; hitTestSource=null; viewerSpace=null; refSpace=null;
+        calibrated=false; calibrationPose=null; floorY=null; placed=false;
+        targets.forEach(t=>t.remove()); targets=[]; remaining=12; score=0;
+        scoreEl.textContent='0'; leftEl.textContent='12'; reticle.setAttribute('visible','false');
+        start.style.display='grid';
+      });
+      await setupHitTest(session);
+      session.requestAnimationFrame(renderXR);
+    }catch(e){
+      error.textContent=e.message||'Impossibile avviare la modalità AR.';
+      error.style.display='block';
+    }
+  }
+
+  enter.addEventListener('click',startAR);
+  rightHand.addEventListener('triggerdown',onSelect);
+  leftHand.addEventListener('triggerdown',onSelect);
+})();
+</script>
+</body>
+</html>
