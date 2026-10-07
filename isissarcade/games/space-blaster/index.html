@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>ISISS Matese — Logo Blaster MR</title>
+<style>
+:root{--ink:#f6f8ff;--muted:#aab5ca;--panel:rgba(10,16,31,.76);--line:rgba(255,255,255,.14);--accent:#ff7a1a;--accent2:#12b5c9}
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#050812;color:var(--ink);font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif}#scene{position:fixed;inset:0}#hud{position:fixed;inset:0;pointer-events:none;z-index:10;padding:16px;display:flex;justify-content:space-between;align-items:flex-start}.stats{display:flex;gap:8px;flex-wrap:wrap}.panel{background:var(--panel);border:1px solid var(--line);border-radius:15px;padding:9px 13px;min-width:92px;backdrop-filter:blur(14px);box-shadow:0 10px 35px rgba(0,0,0,.2)}.label{font-size:10px;text-transform:uppercase;letter-spacing:.15em;color:var(--muted)}.value{font-size:23px;font-weight:850;line-height:1.05;margin-top:3px}.combo{color:#ffd36b}.timer{min-width:108px}.timer.danger .value{color:#ff6464}#reticle{position:fixed;left:50%;top:50%;width:28px;height:28px;transform:translate(-50%,-50%);z-index:9;pointer-events:none;border:2px solid rgba(255,255,255,.9);border-radius:50%;box-shadow:0 0 0 5px rgba(255,255,255,.05),0 0 20px rgba(255,255,255,.28)}#reticle:after{content:"";position:absolute;left:50%;top:50%;width:4px;height:4px;transform:translate(-50%,-50%);border-radius:50%;background:#fff}.message{position:fixed;left:50%;bottom:7%;transform:translateX(-50%);z-index:11;pointer-events:none;background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:11px 17px;color:#fff;font-size:14px;font-weight:700;text-align:center;backdrop-filter:blur(14px);max-width:min(90vw,620px)}.overlay{position:fixed;inset:0;z-index:30;background:linear-gradient(180deg,rgba(3,6,14,.94),rgba(3,6,14,.78));display:flex;align-items:center;justify-content:center;padding:20px}.card{width:min(560px,100%);background:rgba(12,19,38,.94);border:1px solid var(--line);border-radius:28px;padding:30px;box-shadow:0 28px 100px rgba(0,0,0,.55);text-align:left}.brand{display:flex;align-items:center;gap:14px;margin-bottom:18px}.brand img{width:64px;height:64px;object-fit:contain;border-radius:15px;background:#fff}.eyebrow{font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:#9faec7;font-weight:800}.card h1{font-size:clamp(30px,6vw,48px);line-height:1;margin:0 0 12px}.card p{color:var(--muted);line-height:1.55;margin:0 0 14px}.rules{display:grid;grid-template-columns:repeat(3,1fr);gap:9px;margin:20px 0}.rule{border:1px solid var(--line);border-radius:15px;padding:12px;background:rgba(255,255,255,.03)}.rule b{display:block;font-size:18px}.rule span{display:block;color:var(--muted);font-size:11px;margin-top:4px}.btn{width:100%;border:0;border-radius:15px;padding:15px 18px;background:linear-gradient(100deg,var(--accent),#e6338f 48%,var(--accent2));color:#07101d;font-size:16px;font-weight:900;cursor:pointer}.btn:disabled{opacity:.5;cursor:not-allowed}.status{min-height:21px;margin-top:12px;color:var(--muted);font-size:13px}.hidden{display:none!important}.finalScore{font-size:54px;font-weight:900;line-height:1;margin:8px 0 18px}.finalGrid{display:grid;grid-template-columns:repeat(3,1fr);gap:9px;margin-bottom:20px}.finalGrid div{background:rgba(255,255,255,.04);border:1px solid var(--line);border-radius:14px;padding:12px}.finalGrid b{display:block;font-size:20px}.finalGrid span{font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:var(--muted)}@media(max-width:560px){.rules,.finalGrid{grid-template-columns:1fr}.card{padding:22px}.panel{min-width:82px}.value{font-size:20px}}
+</style>
+</head>
+<body>
+<canvas id="xrCanvas"></canvas>
+
+<div id="hud"><div class="stats"><div class="panel"><div class="label">Punti</div><div id="score" class="value">0</div></div><div class="panel"><div class="label">Combo</div><div id="combo" class="value combo">x1</div></div></div><div class="panel timer" id="timerBox"><div class="label">Tempo</div><div id="time" class="value">60</div></div></div>
+<div id="reticle"></div><div id="message" class="message">Avvia la MR, poi premi il grilletto per sparare al logo.</div>
+
+<div id="start" class="overlay"><div class="card"><div class="brand"><img src="../../assets/img/isiss-logo.png" alt="Logo ISISS Matese"><div><div class="eyebrow">ISISS Matese</div><div>Mixed Reality Game</div></div></div><h1>Logo Blaster</h1><p>La tua stanza rimane visibile. Il logo ISISS Matese entra nello spazio reale, si muove tra le superfici rilevate e devi colpirlo con il controller.</p><div class="rules"><div class="rule"><b>60s</b><span>partita</span></div><div class="rule"><b>+100</b><span>ogni colpo</span></div><div class="rule"><b>🔥</b><span>combo</span></div></div><button id="startBtn" class="btn" disabled>Controllo WebXR…</button><div id="status" class="status">Sto verificando il supporto del visore…</div></div></div>
+<div id="end" class="overlay hidden"><div class="card"><div class="eyebrow">Partita terminata</div><h1>Ottimo lavoro.</h1><div id="finalScore" class="finalScore">0</div><div class="finalGrid"><div><b id="finalHits">0</b><span>colpi</span></div><div><b id="finalCombo">x1</b><span>combo max</span></div><div><b id="finalAccuracy">0%</b><span>precisione</span></div></div><button id="againBtn" class="btn">Rigioca</button><div id="endStatus" class="status"></div></div></div>
+
+<script type="module">
+import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js";
+
+const canvas=document.querySelector('#xrCanvas'), start=document.querySelector('#start'), end=document.querySelector('#end'), startBtn=document.querySelector('#startBtn'), againBtn=document.querySelector('#againBtn');
+const statusEl=document.querySelector('#status'), endStatus=document.querySelector('#endStatus'), message=document.querySelector('#message');
+const scoreEl=document.querySelector('#score'), comboEl=document.querySelector('#combo'), timeEl=document.querySelector('#time'), timerBox=document.querySelector('#timerBox');
+const finalScore=document.querySelector('#finalScore'), finalHits=document.querySelector('#finalHits'), finalCombo=document.querySelector('#finalCombo'), finalAccuracy=document.querySelector('#finalAccuracy');
+const setStatus=t=>statusEl.textContent=t;
+
+const CFG={size:.62,spawnDelay:1.0,spawnDistance:1.7,minY:.55,maxY:2.0,speed:.42,fleeSpeed:1.0,roamRadius:3.0,avoidMargin:.34,personalSpace:.75,handSpace:.42,gameTime:60};
+let scene,camera,renderer,session=null,last=null,gameStarted=false,gameOver=false,startTime=0,logo,shadow,pivot,texture;
+const controllers=[],planes=[]; const raycasters=[];
+const S={spawned:false,spawnT:0,wp:new THREE.Vector3(),vel:new THREE.Vector3(),pause:0,flee:0,yaw:0,center:new THREE.Vector3(),poly:[],hitFlash:0,score:0,hits:0,shots:0,combo:0,bestCombo:0,shotLock:false};
+const head=new THREE.Vector3(),fwd=new THREE.Vector3(),tmp=new THREE.Vector3(),tmp2=new THREE.Vector3();
+
+const rand=(a,b)=>a+Math.random()*(b-a);
+const easeOutBack=t=>{const c=1.70158;return 1+(c+1)*Math.pow(t-1,3)+c*Math.pow(t-1,2)};
+const angDiff=(a,b)=>Math.atan2(Math.sin(b-a),Math.cos(b-a));
+function pointInPoly(x,z,poly){let inside=false;for(let i=0,j=poly.length-1;i<poly.length;j=i++){const a=poly[i],b=poly[j];if((a.z>z)!=(b.z>z)&&x<(b.x-a.x)*(z-a.z)/(b.z-a.z)+a.x)inside=!inside}return inside}
+function inArea(x,z){return S.poly.length>=3?pointInPoly(x,z,S.poly):Math.hypot(x-S.center.x,z-S.center.z)<CFG.roamRadius}
+
+function updatePlanes(frame,refSpace){planes.length=0;const set=frame?.detectedPlanes;if(!set)return;for(const plane of set){const pose=frame.getPose(plane.planeSpace,refSpace);if(!pose)continue;const m=new THREE.Matrix4().fromArray(pose.transform.matrix);let minX=1e9,maxX=-1e9,minZ=1e9,maxZ=-1e9;for(const p of plane.polygon){minX=Math.min(minX,p.x);maxX=Math.max(maxX,p.x);minZ=Math.min(minZ,p.z);maxZ=Math.max(maxZ,p.z)}planes.push({inv:m.clone().invert(),normal:new THREE.Vector3(m.elements[4],m.elements[5],m.elements[6]).normalize(),minX,maxX,minZ,maxZ})}}
+function planeCollision(pos,vel,margin,apply){let hit=false;for(const pl of planes){tmp2.copy(pos).applyMatrix4(pl.inv);if(Math.abs(tmp2.y)<margin&&tmp2.x>pl.minX-margin&&tmp2.x<pl.maxX+margin&&tmp2.z>pl.minZ-margin&&tmp2.z<pl.maxZ+margin){hit=true;if(apply){const side=tmp2.y>=0?1:-1,n=tmp.copy(pl.normal).multiplyScalar(side);pos.addScaledVector(n,(margin-Math.abs(tmp2.y))*.25);const into=vel.dot(n);if(into<0)vel.addScaledVector(n,-into);S.pause=Math.min(S.pause,.18);S.wp.copy(pos).addScaledVector(n,1.0);S.wp.y=THREE.MathUtils.clamp(S.wp.y,CFG.minY,CFG.maxY)}}}return hit}
+function pickWaypoint(){for(let i=0;i<45;i++){const a=rand(0,Math.PI*2),r=rand(.9,CFG.roamRadius);const x=head.x+Math.cos(a)*r,z=head.z+Math.sin(a)*r,y=rand(CFG.minY+.15,CFG.maxY-.2);if(!inArea(x,z))continue;tmp.set(x,y,z);if(planeCollision(tmp,S.vel,CFG.avoidMargin*1.5,false))continue;S.wp.copy(tmp);return}S.wp.set(head.x+fwd.x*1.3,1.2,head.z+fwd.z*1.3)}
+
+function makeLogo(){
+  const tex=new THREE.TextureLoader().load('./logo.png',
+    t=>{ t.colorSpace=THREE.SRGBColorSpace; t.anisotropy=4; if(logo) logo.scale.y=t.image.height/t.image.width; message.textContent='🎯 COLPISCI IL LOGO!'; },
+    undefined,
+    e=>{ message.textContent='Errore nel caricamento del logo'; console.error('Logo texture error',e); }
+  );
+  tex.colorSpace=THREE.SRGBColorSpace;
+  texture=tex;
+  logo=new THREE.Mesh(
+    new THREE.PlaneGeometry(CFG.size,CFG.size),
+    new THREE.MeshBasicMaterial({map:tex,transparent:true,alphaTest:.02,side:THREE.DoubleSide,depthWrite:false})
+  );
+  pivot=new THREE.Group(); pivot.add(logo); pivot.rotation.order='YXZ'; pivot.visible=false; scene.add(pivot);
+  const c=document.createElement('canvas'); c.width=c.height=128;
+  const g=c.getContext('2d'),grad=g.createRadialGradient(64,64,3,64,64,64);
+  grad.addColorStop(0,'rgba(0,0,0,.5)'); grad.addColorStop(1,'rgba(0,0,0,0)');
+  g.fillStyle=grad; g.fillRect(0,0,128,128);
+  shadow=new THREE.Mesh(new THREE.PlaneGeometry(1,1).rotateX(-Math.PI/2),new THREE.MeshBasicMaterial({map:new THREE.CanvasTexture(c),transparent:true,depthWrite:false}));
+  shadow.visible=false; scene.add(shadow);
+}
+
+function addController(i){const ctl=renderer.xr.getController(i);ctl.userData.connected=false;ctl.addEventListener('connected',e=>{ctl.userData.connected=true;ctl.userData.source=e.data;});ctl.addEventListener('disconnected',()=>{ctl.userData.connected=false;ctl.userData.source=null});ctl.addEventListener('selectstart',()=>shoot(ctl));ctl.addEventListener('select',()=>shoot(ctl));scene.add(ctl);controllers.push(ctl);const lineGeo=new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0),new THREE.Vector3(0,0,-1)]);const line=new THREE.Line(lineGeo,new THREE.LineBasicMaterial({color:0xff7a1a,transparent:true,opacity:.9}));line.scale.z=4;ctl.add(line);ctl.userData.line=line;raycasters.push(new THREE.Raycaster())}
+
+function init(){scene=new THREE.Scene();scene.background=null;camera=new THREE.PerspectiveCamera(70,innerWidth/innerHeight,.01,100);renderer=new THREE.WebGLRenderer({canvas,antialias:true,alpha:true,preserveDrawingBuffer:false});renderer.setPixelRatio(Math.min(devicePixelRatio,2));renderer.setSize(innerWidth,innerHeight);renderer.xr.enabled=true;renderer.xr.setReferenceSpaceType('local-floor');renderer.outputColorSpace=THREE.SRGBColorSpace;scene.add(new THREE.HemisphereLight(0xffffff,0x445066,1.2));makeLogo();addController(0);addController(1);renderer.setAnimationLoop(render);addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight)})}
+
+function resetGame(){S.spawned=false;S.spawnT=0;S.wp.set(0,1.2,-1.5);S.vel.set(0,0,0);S.pause=0;S.flee=0;S.hitFlash=0;S.score=0;S.hits=0;S.shots=0;S.combo=0;S.bestCombo=0;S.shotLock=false;S.poly=[];planes.length=0;scoreEl.textContent='0';comboEl.textContent='x1';timeEl.textContent=String(CFG.gameTime);timerBox.classList.remove('danger');pivot.visible=false;shadow.visible=false;message.textContent='Il logo sta arrivando…';gameOver=false;gameStarted=true;startTime=0}
+
+function startAR(){return navigator.xr.requestSession('immersive-ar',{requiredFeatures:[],optionalFeatures:['local-floor','bounded-floor','plane-detection','mesh-detection','hit-test','anchors','hand-tracking','dom-overlay'],domOverlay:{root:document.body}}).then(async s=>{session=s;
+    try{await session.requestReferenceSpace('local-floor');renderer.xr.setReferenceSpaceType('local-floor')}catch(e){renderer.xr.setReferenceSpaceType('local')}
+    await renderer.xr.setSession(s);
+    start.classList.add('hidden');end.classList.add('hidden');resetGame();session.addEventListener('end',()=>{session=null;gameStarted=false;gameOver=true;start.classList.remove('hidden');setStatus('Sessione terminata. Puoi rientrare quando vuoi.');startBtn.disabled=false;startBtn.textContent='Rientra nella realtà mista'},{once:true})}).catch(e=>setStatus('Impossibile avviare la MR: '+e.message))}
+
+function spawn(){S.center.copy(head); const startPos=head.clone().addScaledVector(fwd,CFG.spawnDistance); startPos.y=THREE.MathUtils.clamp(head.y,1.1,1.6); pivot.position.copy(startPos); S.yaw=Math.atan2(head.x-pivot.position.x,head.z-pivot.position.z); S.wp.copy(pivot.position); S.wp.y=THREE.MathUtils.clamp(S.wp.y,CFG.minY,CFG.maxY); S.vel.set(0,0,0); S.spawned=true; S.spawnT=0; pivot.visible=true; shadow.visible=true; message.textContent='🎯 COLPISCI IL LOGO!'; console.log('LOGO SPAWN',pivot.position.toArray());}
+function pulseHit(){S.hitFlash=.18;message.textContent='💥 COLPITO! +'+(100*S.combo);setTimeout(()=>{if(gameStarted&&!gameOver)message.textContent='Continua a sparare al logo!'},350)}
+function shoot(ctl){if(!gameStarted||gameOver||!S.spawned||S.shotLock)return;S.shotLock=true;setTimeout(()=>S.shotLock=false,110);S.shots++;const ray=raycasters[controllers.indexOf(ctl)];if(!ray)return;ray.setFromMatrixPosition(ctl.matrixWorld);const dir=new THREE.Vector3(0,0,-1).applyQuaternion(ctl.getWorldQuaternion(new THREE.Quaternion())).normalize();ray.set(ray.ray.origin,dir);const hits=ray.intersectObject(logo,false);if(hits.length){S.hits++;S.combo++;S.bestCombo=Math.max(S.bestCombo,S.combo);const mult=Math.min(5,S.combo);S.score+=100*mult;pulseHit();scoreEl.textContent=String(S.score);comboEl.textContent='x'+mult;logo.scale.multiplyScalar(.84);setTimeout(()=>{if(logo)logo.scale.set(1,texture?.image?.height&&texture.image.width?texture.image.height/texture.image.width:1,1)},90);pickWaypoint();S.vel.multiplyScalar(.2)}else{S.combo=0;comboEl.textContent='x1';message.textContent='— MANCATO —';}}
+
+function endGame(){gameOver=true;gameStarted=false;pivot.visible=false;shadow.visible=false;finalScore.textContent=String(S.score);finalHits.textContent=String(S.hits);finalCombo.textContent='x'+Math.min(5,S.bestCombo);finalAccuracy.textContent=(S.shots?Math.round(S.hits/S.shots*100):0)+'%';endStatus.textContent='Hai sparato '+S.shots+' volte.';end.classList.remove('hidden')}
+
+function update(dt,t,frame){const refSpace=renderer.xr.getReferenceSpace(),xrCam=renderer.xr.getCamera();head.setFromMatrixPosition(xrCam.matrixWorld);xrCam.getWorldDirection(fwd);fwd.y=0;if(fwd.lengthSq()<1e-4)fwd.set(0,0,-1);fwd.normalize();if(!startTime)startTime=t;const remaining=Math.max(0,CFG.gameTime-(t-startTime));timeEl.textContent=String(Math.ceil(remaining));timerBox.classList.toggle('danger',remaining<=10);if(remaining<=0){endGame();return}if(refSpace?.boundsGeometry&&!S.poly.length)S.poly=Array.from(refSpace.boundsGeometry,p=>({x:p.x,z:p.z}));updatePlanes(frame,refSpace);if(!S.spawned){if(t-startTime<CFG.spawnDelay)return;spawn();return}S.spawnT=Math.min(1,S.spawnT+dt/.8);const grow=easeOutBack(S.spawnT);const pos=pivot.position;let threat=null,threatDist=Infinity;const dHead=Math.hypot(pos.x-head.x,pos.z-head.z);if(dHead<CFG.personalSpace&&Math.abs(pos.y-head.y)<1){threat=head;threatDist=dHead}for(const ctl of controllers){if(!ctl.userData.connected)continue;tmp.setFromMatrixPosition(ctl.matrixWorld);const d=tmp.distanceTo(pos);if(d<CFG.handSpace&&d<threatDist){threat=tmp.clone();threatDist=d}}if(threat&&S.flee<=0){S.flee=1.0;tmp.copy(pos).sub(threat);tmp.y=rand(-.1,.25);tmp.normalize();S.wp.copy(pos).addScaledVector(tmp,1.5);S.wp.y=THREE.MathUtils.clamp(S.wp.y,CFG.minY,CFG.maxY);if(!inArea(S.wp.x,S.wp.z))pickWaypoint();S.pause=0}S.flee=Math.max(0,S.flee-dt);if(dHead>CFG.roamRadius+.7&&S.flee<=0){pickWaypoint();S.pause=0}const speed=S.flee>0?CFG.fleeSpeed:CFG.speed;tmp.copy(S.wp).sub(pos);const dist=tmp.length();if(S.pause>0){S.pause-=dt;S.vel.multiplyScalar(Math.exp(-dt*3))}else if(dist<.15){S.pause=rand(.8,2.0);pickWaypoint()}else{tmp.normalize().multiplyScalar(speed);S.vel.lerp(tmp,1-Math.exp(-dt*2.5))}pos.addScaledVector(S.vel,dt);planeCollision(pos,S.vel,CFG.avoidMargin,true);if(!inArea(pos.x,pos.z)){tmp.set(S.center.x-pos.x,0,S.center.z-pos.z).normalize();S.vel.addScaledVector(tmp,dt*1.5);pos.addScaledVector(tmp,dt*.3)}pos.y=THREE.MathUtils.clamp(pos.y,CFG.minY,CFG.maxY);const targetYaw=Math.atan2(head.x-pos.x,head.z-pos.z);S.yaw+=angDiff(S.yaw,targetYaw)*(1-Math.exp(-dt*3));const bob=Math.sin(t*1.7)*.035;logo.position.y=bob;pivot.rotation.y=S.yaw;pivot.rotation.x=THREE.MathUtils.clamp(-S.vel.y*.5,-.3,.3)+Math.sin(t*1.1)*.03;pivot.rotation.z=THREE.MathUtils.clamp(-(S.vel.x*Math.cos(S.yaw)-S.vel.z*Math.sin(S.yaw))*.6,-.35,.35);pivot.scale.setScalar(Math.max(.001,grow)*(1+Math.sin(t*2.2)*.012));const h=Math.max(0,pos.y+bob);shadow.position.set(pos.x,.005,pos.z);const sw=CFG.size*(.9+h*.25)*grow;shadow.scale.set(sw,1,sw);shadow.material.opacity=THREE.MathUtils.clamp(.75-h*.28,.12,.7);S.hitFlash=Math.max(0,S.hitFlash-dt);logo.material.opacity=S.hitFlash>0?1:1}
+
+function render(time,frame){const t=time/1000;if(last===null)last=t;const dt=Math.min(t-last,.05);last=t;if(frame&&renderer.xr.isPresenting&&gameStarted&&!gameOver)update(dt,t,frame);renderer.render(scene,camera)}
+
+async function checkXR(){if(!navigator.xr){setStatus('Apri questa pagina nel browser del Meta Quest: WebXR non è disponibile qui.');return}const ok=await navigator.xr.isSessionSupported('immersive-ar').catch(()=>false);startBtn.disabled=!ok;if(ok){startBtn.textContent='Avvia Logo Blaster MR';setStatus('Pronto. Il gioco usa direttamente controller, WebXR e rilevamento delle superfici.')}else{startBtn.textContent='Realtà mista non disponibile';setStatus('Questo browser non espone immersive-ar.')}}
+startBtn.addEventListener('click',startAR);againBtn.addEventListener('click',()=>{end.classList.add('hidden');start.classList.remove('hidden');checkXR()});
+init();
+checkXR();
+</script>
+</body>
+</html>
