@@ -1,0 +1,784 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>3D Penalty Shootout - ISISS MATESE Edition</title>
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #87CEEB;
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            touch-action: none;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        #game-container, canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+            touch-action: none;
+        }
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 10;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+        .pointer-events-auto {
+            pointer-events: auto;
+        }
+        #power-bar-container {
+            background: rgba(0, 0, 0, 0.75);
+            border-radius: 12px;
+            overflow: hidden;
+            border: 2px solid #ffffff;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+        }
+        #power-bar-fill {
+            width: 0%;
+            height: 100%;
+            background: linear-gradient(90deg, #4ade80, #facc15, #f87171);
+            transition: width 0.05s;
+        }
+        #crosshair {
+            position: absolute;
+            width: 32px;
+            height: 32px;
+            border: 2px solid rgba(255, 255, 255, 0.95);
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            top: 50%;
+            left: 50%;
+            pointer-events: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 0 10px rgba(0,0,0,0.6);
+            z-index: 20;
+        }
+        #crosshair::before {
+            content: '';
+            width: 8px;
+            height: 8px;
+            background: #ef4444;
+            border-radius: 50%;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="ui-layer" class="p-3 sm:p-6">
+        <!-- Top HUD -->
+        <div class="flex justify-between items-start gap-2 w-full">
+            <div class="bg-black/75 text-white px-4 py-3 rounded-2xl backdrop-blur-md border border-white/20 shadow-xl pointer-events-auto flex flex-col gap-1">
+                <h1 class="text-sm sm:text-xl font-black uppercase tracking-wider text-green-400">ISISS MATESE Shootout</h1>
+                <div class="text-xs sm:text-base font-bold flex gap-3 text-gray-200">
+                    <div>Goals: <span id="score-goals" class="text-white text-sm sm:text-lg">0</span></div>
+                    <div>Misses: <span id="score-misses" class="text-red-400 text-sm sm:text-lg">0</span></div>
+                    <div>Streak: <span id="score-streak" class="text-yellow-400 text-sm sm:text-lg">0</span></div>
+                </div>
+            </div>
+
+            <!-- Controls & Restart -->
+            <div class="flex flex-col items-end gap-2 pointer-events-auto">
+                <button id="restart-btn" type="button" class="bg-red-600 hover:bg-red-500 active:scale-95 text-white font-black px-4 py-2 rounded-xl border border-white/30 shadow-lg text-xs sm:text-sm transition-all duration-150">
+                    🔄 RESTART
+                </button>
+                <div class="bg-black/75 text-white px-3 py-2 rounded-xl backdrop-blur-md border border-white/20 text-[10px] sm:text-xs text-right hidden sm:block">
+                    <p>🎯 Drag / Mouse to Aim</p>
+                    <p>⚡ Hold to Power Up</p>
+                    <p>🥄 SHIFT / Button for Cucchiaio</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Goal / Result Display -->
+        <div id="message-container" class="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-center hidden w-full px-4">
+            <h2 id="message-text" class="text-3xl sm:text-6xl font-black text-white drop-shadow-[0_6px_6px_rgba(0,0,0,0.9)] uppercase italic transform scale-125 transition-all duration-300 break-words">
+                GOAL!
+            </h2>
+        </div>
+
+        <div class="pb-2 sm:pb-6 flex flex-col items-center gap-2 sm:gap-3">
+            <button id="cucchiaio-btn" type="button" class="pointer-events-auto bg-yellow-500/90 hover:bg-yellow-400 active:scale-95 text-black font-black py-2.5 px-6 rounded-full border-2 border-white shadow-2xl text-xs sm:text-sm transition-all duration-200 flex items-center gap-2">
+                <span>CUCCHIAIO 🥄</span>
+                <span id="cucchiaio-status" class="bg-black/50 text-yellow-200 text-[10px] sm:text-xs px-2 py-0.5 rounded-full font-bold">OFF</span>
+            </button>
+
+            <div id="instructions" class="text-white font-extrabold drop-shadow-md tracking-widest uppercase text-xs sm:text-sm text-center">
+                Hold to power up shot
+            </div>
+            <div id="power-bar-container" class="w-52 sm:w-72 h-4 sm:h-5">
+                <div id="power-bar-fill"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Crosshair & Canvas Container -->
+    <div id="crosshair"></div>
+    <div id="game-container"></div>
+
+    <script>
+        const BALL_RADIUS = 0.45;
+        const GOAL_WIDTH = 16.0;
+        const GOAL_HEIGHT = 6.0;
+        const GOAL_DEPTH = 4.0;
+        const GOAL_Z = -15;
+        const BALL_START_POS = new THREE.Vector3(0, BALL_RADIUS, 8);
+        const GRAVITY = 12.0;
+
+        let state = {
+            score: 0,
+            misses: 0,
+            streak: 0,
+            bestStreak: 0,
+            isAiming: true,
+            isCharging: false,
+            power: 0,
+            shotTaken: false,
+            ballVelocity: new THREE.Vector3(0, 0, 0),
+            ballSpin: new THREE.Vector3(0, 0, 0),
+            targetPoint: new THREE.Vector3(0, GOAL_HEIGHT / 2, GOAL_Z),
+            shiftPressed: false,
+            cucchiaioToggle: false,
+            isCucchiaio: false
+        };
+
+        let scene, camera, renderer;
+        let ball, goalieGroup;
+        let goalBoundingBox;
+        let clock = new THREE.Clock();
+
+        let mouse = new THREE.Vector2();
+        let raycaster = new THREE.Raycaster();
+        const crosshair = document.getElementById('crosshair');
+
+        function init() {
+            // 1. Scene setup
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x87CEEB);
+            scene.fog = new THREE.FogExp2(0x87CEEB, 0.012);
+
+            // 2. Camera setup
+            camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(0, 3.5, 18);
+            camera.lookAt(0, 2.5, GOAL_Z);
+
+            // 3. Renderer setup
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            document.getElementById('game-container').appendChild(renderer.domElement);
+
+            // 4. Lighting setup
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.65);
+            scene.add(ambientLight);
+
+            const dirLight = new THREE.DirectionalLight(0xffffff, 0.85);
+            dirLight.position.set(20, 40, 20);
+            dirLight.castShadow = true;
+            dirLight.shadow.mapSize.width = 2048;
+            dirLight.shadow.mapSize.height = 2048;
+            dirLight.shadow.camera.near = 0.5;
+            dirLight.shadow.camera.far = 100;
+            dirLight.shadow.camera.left = -20;
+            dirLight.shadow.camera.right = 20;
+            dirLight.shadow.camera.top = 20;
+            dirLight.shadow.camera.bottom = -20;
+            scene.add(dirLight);
+
+            // Pitch with realistic grass stripes
+            const pitchCanvas = document.createElement('canvas');
+            pitchCanvas.width = 512;
+            pitchCanvas.height = 512;
+            const pCtx = pitchCanvas.getContext('2d');
+            pCtx.fillStyle = '#228b22';
+            pCtx.fillRect(0, 0, 512, 512);
+            pCtx.fillStyle = '#1e7b1e';
+            for (let i = 0; i < 512; i += 64) {
+                pCtx.fillRect(0, i, 512, 32);
+            }
+            const pitchTexture = new THREE.CanvasTexture(pitchCanvas);
+            pitchTexture.wrapS = THREE.RepeatWrapping;
+            pitchTexture.wrapT = THREE.RepeatWrapping;
+            pitchTexture.repeat.set(1, 10);
+
+            const pitchGeo = new THREE.PlaneGeometry(100, 120);
+            const pitchMat = new THREE.MeshStandardMaterial({ map: pitchTexture, roughness: 0.8 });
+            const pitch = new THREE.Mesh(pitchGeo, pitchMat);
+            pitch.rotation.x = -Math.PI / 2;
+            pitch.receiveShadow = true;
+            scene.add(pitch);
+
+            // Clean penalty box outline without internal wireframe diagonals
+            const boxGeo = new THREE.PlaneGeometry(28, 18);
+            const boxEdges = new THREE.EdgesGeometry(boxGeo);
+            const lineMat = new THREE.LineBasicMaterial({ color: 0xffffff, linewidth: 3 });
+            const boxLine = new THREE.LineSegments(boxEdges, lineMat);
+            boxLine.rotation.x = -Math.PI / 2;
+            boxLine.position.set(0, 0.02, -6);
+            scene.add(boxLine);
+
+            const spotGeo = new THREE.CircleGeometry(0.25, 32);
+            const spotMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+            const spot = new THREE.Mesh(spotGeo, spotMat);
+            spot.rotation.x = -Math.PI / 2;
+            spot.position.set(0, 0.03, 8);
+            scene.add(spot);
+
+            // Goal Posts
+            const postMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.2, metalness: 0.1 });
+            const postRadius = 0.22;
+
+            const leftPost = new THREE.Mesh(new THREE.CylinderGeometry(postRadius, postRadius, GOAL_HEIGHT, 16), postMat);
+            leftPost.position.set(-GOAL_WIDTH / 2, GOAL_HEIGHT / 2, GOAL_Z);
+            leftPost.castShadow = true;
+            scene.add(leftPost);
+
+            const rightPost = new THREE.Mesh(new THREE.CylinderGeometry(postRadius, postRadius, GOAL_HEIGHT, 16), postMat);
+            rightPost.position.set(GOAL_WIDTH / 2, GOAL_HEIGHT / 2, GOAL_Z);
+            rightPost.castShadow = true;
+            scene.add(rightPost);
+
+            const crossbar = new THREE.Mesh(new THREE.CylinderGeometry(postRadius, postRadius, GOAL_WIDTH, 16), postMat);
+            crossbar.rotation.z = Math.PI / 2;
+            crossbar.position.set(0, GOAL_HEIGHT, GOAL_Z);
+            crossbar.castShadow = true;
+            scene.add(crossbar);
+
+            // Rear stanchions (net support bars)
+            const stanchionMat = new THREE.MeshStandardMaterial({ color: 0xd1d5db, roughness: 0.4 });
+            const leftStanchion = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, GOAL_DEPTH + 1.5, 8), stanchionMat);
+            leftStanchion.rotation.x = Math.PI / 4;
+            leftStanchion.position.set(-GOAL_WIDTH / 2, GOAL_HEIGHT / 2 - 0.5, GOAL_Z - GOAL_DEPTH / 2);
+            scene.add(leftStanchion);
+
+            const rightStanchion = leftStanchion.clone();
+            rightStanchion.position.x = GOAL_WIDTH / 2;
+            scene.add(rightStanchion);
+
+            // Realistic Net Texture
+            const netCanvas = document.createElement('canvas');
+            netCanvas.width = 128;
+            netCanvas.height = 128;
+            const netCtx = netCanvas.getContext('2d');
+            netCtx.fillStyle = 'rgba(0, 0, 0, 0)';
+            netCtx.fillRect(0, 0, 128, 128);
+            netCtx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
+            netCtx.lineWidth = 4;
+            netCtx.strokeRect(0, 0, 128, 128);
+            netCtx.beginPath();
+            netCtx.moveTo(0, 64); netCtx.lineTo(64, 0);
+            netCtx.moveTo(64, 128); netCtx.lineTo(128, 64);
+            netCtx.stroke();
+
+            const netTexture = new THREE.CanvasTexture(netCanvas);
+            netTexture.wrapS = THREE.RepeatWrapping;
+            netTexture.wrapT = THREE.RepeatWrapping;
+            netTexture.repeat.set(20, 8);
+
+            const netMat = new THREE.MeshStandardMaterial({
+                map: netTexture,
+                transparent: true,
+                opacity: 0.65,
+                side: THREE.DoubleSide,
+                roughness: 0.9
+            });
+
+            // Goal Net Panels (Back, Top, Sides)
+            const backNetGeo = new THREE.PlaneGeometry(GOAL_WIDTH, GOAL_HEIGHT);
+            const backNet = new THREE.Mesh(backNetGeo, netMat);
+            backNet.position.set(0, GOAL_HEIGHT / 2, GOAL_Z - GOAL_DEPTH);
+            scene.add(backNet);
+
+            const topNetGeo = new THREE.PlaneGeometry(GOAL_WIDTH, GOAL_DEPTH);
+            const topNet = new THREE.Mesh(topNetGeo, netMat);
+            topNet.rotation.x = Math.PI / 2;
+            topNet.position.set(0, GOAL_HEIGHT, GOAL_Z - GOAL_DEPTH / 2);
+            scene.add(topNet);
+
+            const sideNetGeo = new THREE.PlaneGeometry(GOAL_DEPTH, GOAL_HEIGHT);
+            const leftNet = new THREE.Mesh(sideNetGeo, netMat);
+            leftNet.rotation.y = Math.PI / 2;
+            leftNet.position.set(-GOAL_WIDTH / 2, GOAL_HEIGHT / 2, GOAL_Z - GOAL_DEPTH / 2);
+            scene.add(leftNet);
+
+            const rightNet = new THREE.Mesh(sideNetGeo, netMat);
+            rightNet.rotation.y = Math.PI / 2;
+            rightNet.position.set(GOAL_WIDTH / 2, GOAL_HEIGHT / 2, GOAL_Z - GOAL_DEPTH / 2);
+            scene.add(rightNet);
+
+            goalBoundingBox = new THREE.Box3(
+                new THREE.Vector3(-GOAL_WIDTH / 2 + 0.3, 0.2, GOAL_Z - GOAL_DEPTH + 0.5),
+                new THREE.Vector3(GOAL_WIDTH / 2 - 0.3, GOAL_HEIGHT - 0.2, GOAL_Z - 0.2)
+            );
+
+            // Create ball and goalkeeper
+            createBall();
+            createGoalie();
+
+            window.addEventListener('resize', onWindowResize, false);
+            window.addEventListener('mousemove', onPointerMove, false);
+            window.addEventListener('mousedown', onPointerDown, false);
+            window.addEventListener('mouseup', onPointerUp, false);
+
+            window.addEventListener('touchmove', onTouchMove, { passive: false });
+            window.addEventListener('touchstart', onTouchStart, { passive: false });
+            window.addEventListener('touchend', onTouchEnd, { passive: false });
+
+            window.addEventListener('keydown', (e) => {
+                if (e.key === 'Shift') state.shiftPressed = true;
+            });
+            window.addEventListener('keyup', (e) => {
+                if (e.key === 'Shift') state.shiftPressed = false;
+            });
+
+            document.getElementById('restart-btn').addEventListener('click', resetGame);
+            setupCucchiaioButton();
+
+            // Start animation loop
+            animate();
+        }
+
+        function createBall() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 1024;
+            canvas.height = 512;
+            const ctx = canvas.getContext('2d');
+
+            // White base
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Colorful ISISS MATESE swirl shapes
+            const colors = ['#84cc16', '#f97316', '#ec4899', '#06b6d4', '#10b981'];
+            for (let i = 0; i < 2; i++) {
+                const offsetX = i * 512;
+                
+                // Draw swirl petals
+                colors.forEach((col, idx) => {
+                    ctx.fillStyle = col;
+                    ctx.beginPath();
+                    const angle = (idx * Math.PI * 2) / 5;
+                    const cx = offsetX + 256 + Math.cos(angle) * 120;
+                    const cy = 256 + Math.sin(angle) * 120;
+                    ctx.arc(cx, cy, 70, 0, Math.PI * 2);
+                    ctx.fill();
+                });
+
+                // Center text
+                ctx.fillStyle = '#047857';
+                ctx.font = '900 42px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.fillText('ISISS', offsetX + 256, 230);
+                ctx.fillText('MATESE', offsetX + 256, 280);
+
+                // Section badges
+                ctx.font = '700 24px sans-serif';
+                ctx.fillStyle = '#15803d';
+                ctx.fillText('ITI', offsetX + 150, 150);
+                ctx.fillText('IPSEOA', offsetX + 360, 200);
+                ctx.fillText('ITA', offsetX + 256, 380);
+            }
+
+            // Seams and panels
+            ctx.strokeStyle = '#cbd5e1';
+            ctx.lineWidth = 4;
+            for (let x = 0; x < canvas.width; x += 128) {
+                ctx.beginPath();
+                ctx.moveTo(x, 0);
+                ctx.lineTo(x, canvas.height);
+                ctx.stroke();
+            }
+
+            const texture = new THREE.CanvasTexture(canvas);
+            const ballGeo = new THREE.SphereGeometry(BALL_RADIUS, 64, 32);
+            const ballMat = new THREE.MeshStandardMaterial({ 
+                map: texture,
+                roughness: 0.35,
+                metalness: 0.1
+            });
+
+            ball = new THREE.Group();
+            const ballMesh = new THREE.Mesh(ballGeo, ballMat);
+            ballMesh.castShadow = true;
+            ball.add(ballMesh);
+
+            ball.position.copy(BALL_START_POS);
+            scene.add(ball);
+        }
+
+        function createGoalie() {
+            goalieGroup = new THREE.Group();
+
+            const skinMat = new THREE.MeshStandardMaterial({ color: 0xffcc99 });
+            const shirtMat = new THREE.MeshStandardMaterial({ color: 0xffeb3b });
+            const shortMat = new THREE.MeshStandardMaterial({ color: 0x111111 });
+
+            const bodyGeo = new THREE.BoxGeometry(0.9, 1.2, 0.45);
+            const body = new THREE.Mesh(bodyGeo, shirtMat);
+            body.position.y = 1.8;
+            body.castShadow = true;
+            goalieGroup.add(body);
+
+            const headGeo = new THREE.BoxGeometry(0.5, 0.5, 0.5);
+            const head = new THREE.Mesh(headGeo, skinMat);
+            head.position.y = 2.65;
+            head.castShadow = true;
+            goalieGroup.add(head);
+
+            const armGeo = new THREE.BoxGeometry(0.3, 1.2, 0.3);
+            armGeo.translate(0, -0.5, 0);
+
+            const leftArm = new THREE.Mesh(armGeo, shirtMat);
+            leftArm.position.set(-0.65, 2.3, 0);
+            leftArm.castShadow = true;
+            goalieGroup.add(leftArm);
+
+            const rightArm = new THREE.Mesh(armGeo, shirtMat);
+            rightArm.position.set(0.65, 2.3, 0);
+            rightArm.castShadow = true;
+            goalieGroup.add(rightArm);
+
+            const legGeo = new THREE.BoxGeometry(0.35, 1.2, 0.35);
+            legGeo.translate(0, -0.5, 0);
+
+            const leftLeg = new THREE.Mesh(legGeo, shortMat);
+            leftLeg.position.set(-0.25, 1.2, 0);
+            leftLeg.castShadow = true;
+            goalieGroup.add(leftLeg);
+
+            const rightLeg = new THREE.Mesh(legGeo, shortMat);
+            rightLeg.position.set(0.25, 1.2, 0);
+            rightLeg.castShadow = true;
+            goalieGroup.add(rightLeg);
+
+            goalieGroup.position.set(0, 0, GOAL_Z + 0.5);
+
+            goalieGroup.userData = {
+                startPos: new THREE.Vector3(0, 0, GOAL_Z + 0.5),
+                targetPos: new THREE.Vector3(0, 0, GOAL_Z + 0.5),
+                isDiving: false,
+                diveRotation: 0,
+                diveDirection: 0,
+                limbs: { leftArm, rightArm, leftLeg, rightLeg }
+            };
+
+            scene.add(goalieGroup);
+        }
+
+        function setupCucchiaioButton() {
+            const cucchiaioBtn = document.getElementById('cucchiaio-btn');
+            const cucchiaioStatus = document.getElementById('cucchiaio-status');
+
+            if (!cucchiaioBtn) return;
+
+            cucchiaioBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                state.cucchiaioToggle = !state.cucchiaioToggle;
+                if (state.cucchiaioToggle) {
+                    cucchiaioBtn.classList.add('bg-amber-400', 'ring-4', 'ring-yellow-300');
+                    cucchiaioStatus.innerText = 'ON';
+                    cucchiaioStatus.className = "bg-black text-green-400 text-[10px] sm:text-xs px-2 py-0.5 rounded-full font-bold";
+                } else {
+                    cucchiaioBtn.classList.remove('bg-amber-400', 'ring-4', 'ring-yellow-300');
+                    cucchiaioStatus.innerText = 'OFF';
+                    cucchiaioStatus.className = "bg-black/50 text-yellow-200 text-[10px] sm:text-xs px-2 py-0.5 rounded-full font-bold";
+                }
+            });
+        }
+
+        function updateAim(clientX, clientY) {
+            if (!state.isAiming || state.shotTaken) return;
+
+            crosshair.style.left = clientX + 'px';
+            crosshair.style.top = clientY + 'px';
+
+            mouse.x = (clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(clientY / window.innerHeight) * 2 + 1;
+
+            raycaster.setFromCamera(mouse, camera);
+            const distanceToPlane = (GOAL_Z - camera.position.z) / raycaster.ray.direction.z;
+            const intersectPoint = camera.position.clone().add(raycaster.ray.direction.multiplyScalar(distanceToPlane));
+
+            state.targetPoint.x = THREE.MathUtils.clamp(intersectPoint.x, -GOAL_WIDTH, GOAL_WIDTH);
+            state.targetPoint.y = THREE.MathUtils.clamp(intersectPoint.y, 0, GOAL_HEIGHT + 2);
+            state.targetPoint.z = GOAL_Z;
+        }
+
+        function onPointerMove(e) { updateAim(e.clientX, e.clientY); }
+        function onTouchMove(e) { if(e.touches.length > 0) updateAim(e.touches[0].clientX, e.touches[0].clientY); }
+
+        function onTouchStart(e) {
+            if (e.touches.length > 0) {
+                e.preventDefault();
+                updateAim(e.touches[0].clientX, e.touches[0].clientY);
+                onPointerDown();
+            }
+        }
+
+        function onTouchEnd(e) {
+            e.preventDefault();
+            onPointerUp();
+        }
+
+        function onPointerDown() {
+            if (state.shotTaken) return;
+            state.isCharging = true;
+            state.power = 0;
+            document.getElementById('instructions').innerText = "POWERING...";
+            document.getElementById('instructions').className = "text-yellow-400 font-extrabold uppercase text-xs sm:text-sm text-center";
+        }
+
+        function onPointerUp() {
+            if (state.shotTaken || !state.isCharging) return;
+            state.isCharging = false;
+            shootBall();
+            document.getElementById('instructions').innerText = "SHOT IN FLIGHT...";
+            document.getElementById('instructions').className = "text-white font-extrabold uppercase text-xs sm:text-sm text-center";
+            document.getElementById('power-bar-fill').style.width = '0%';
+        }
+
+        function shootBall() {
+            state.shotTaken = true;
+            state.isAiming = false;
+            crosshair.style.display = 'none';
+
+            state.isCucchiaio = state.shiftPressed || state.cucchiaioToggle;
+            const direction = new THREE.Vector3().subVectors(state.targetPoint, ball.position).normalize();
+
+            if (state.isCucchiaio) {
+                const actualPower = 12 + (state.power * 10);
+                state.ballVelocity.copy(direction).multiplyScalar(actualPower);
+                state.ballVelocity.y += 10 + (state.power * 8);
+                state.ballVelocity.z *= 0.6;
+            } else {
+                const actualPower = 22 + (state.power * 35);
+                state.ballVelocity.copy(direction).multiplyScalar(actualPower);
+                state.ballVelocity.y += actualPower * 0.2;
+            }
+
+            state.ballSpin.set(
+                (Math.random() - 0.5) * 35 + 15,
+                (Math.random() - 0.5) * 35,
+                (Math.random() - 0.5) * 35
+            );
+
+            triggerGoalieAI();
+        }
+
+        function triggerGoalieAI() {
+            const distanceZ = Math.abs(goalieGroup.userData.startPos.z - ball.position.z);
+            const timeToReach = distanceZ / Math.abs(state.ballVelocity.z);
+
+            let predictedX = ball.position.x + (state.ballVelocity.x * timeToReach);
+            let predictedY = ball.position.y + (state.ballVelocity.y * timeToReach) - (0.5 * GRAVITY * timeToReach * timeToReach);
+
+            let errorMargin = 0;
+            if (state.isCucchiaio) {
+                errorMargin = (Math.random() < 0.5 ? -6 : 6) + (Math.random() - 0.5) * 2;
+                predictedY = 0;
+            } else if (Math.random() < 0.35) {
+                errorMargin = (Math.random() - 0.5) * 8.0;
+            } else {
+                errorMargin = (Math.random() - 0.5) * 1.5;
+            }
+            predictedX += errorMargin;
+
+            predictedX = THREE.MathUtils.clamp(predictedX, -GOAL_WIDTH/2 + 0.5, GOAL_WIDTH/2 - 0.5);
+            predictedY = Math.max(0, predictedY);
+
+            goalieGroup.userData.targetPos.set(predictedX, Math.min(predictedY, 3.0), goalieGroup.userData.startPos.z);
+            goalieGroup.userData.isDiving = true;
+
+            if (predictedX < -1.5) {
+                goalieGroup.userData.diveRotation = Math.PI / 2.2;
+                goalieGroup.userData.diveDirection = -1;
+            } else if (predictedX > 1.5) {
+                goalieGroup.userData.diveRotation = -Math.PI / 2.2;
+                goalieGroup.userData.diveDirection = 1;
+            } else {
+                goalieGroup.userData.diveRotation = 0;
+                goalieGroup.userData.diveDirection = 0;
+            }
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            const dt = clock.getDelta();
+            const time = clock.getElapsedTime();
+
+            if (state.isCharging) {
+                state.power += dt * 1.2;
+                if (state.power > 1) state.power = 0;
+                document.getElementById('power-bar-fill').style.width = (state.power * 100) + '%';
+            }
+
+            if (state.shotTaken) {
+                state.ballVelocity.y -= GRAVITY * dt;
+
+                ball.position.x += state.ballVelocity.x * dt;
+                ball.position.y += state.ballVelocity.y * dt;
+                ball.position.z += state.ballVelocity.z * dt;
+
+                ball.rotation.x += state.ballSpin.x * dt;
+                ball.rotation.y += state.ballSpin.y * dt;
+                ball.rotation.z += state.ballSpin.z * dt;
+
+                if (ball.position.y < BALL_RADIUS) {
+                    ball.position.y = BALL_RADIUS;
+                    state.ballVelocity.y *= -0.6;
+                    state.ballVelocity.x *= 0.9;
+                    state.ballVelocity.z *= 0.9;
+                    state.ballSpin.multiplyScalar(0.8);
+                }
+
+                checkCollisions();
+            }
+
+            if (goalieGroup.userData.isDiving) {
+                goalieGroup.position.lerp(goalieGroup.userData.targetPos, dt * 7);
+                goalieGroup.rotation.z = THREE.MathUtils.lerp(goalieGroup.rotation.z, goalieGroup.userData.diveRotation, dt * 6);
+
+                const limbs = goalieGroup.userData.limbs;
+                limbs.leftArm.rotation.z = THREE.MathUtils.lerp(limbs.leftArm.rotation.z, Math.PI - 0.2, dt * 8);
+                limbs.rightArm.rotation.z = THREE.MathUtils.lerp(limbs.rightArm.rotation.z, -Math.PI + 0.2, dt * 8);
+            } else {
+                goalieGroup.position.y = goalieGroup.userData.startPos.y + Math.abs(Math.sin(time * 8)) * 0.15;
+                const limbs = goalieGroup.userData.limbs;
+                limbs.leftArm.rotation.z = 0.2 + Math.sin(time * 5) * 0.1;
+                limbs.rightArm.rotation.z = -0.2 - Math.sin(time * 5) * 0.1;
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        let collisionProcessed = false;
+
+        function checkCollisions() {
+            if (collisionProcessed) return;
+
+            const postRadius = 0.2;
+
+            if (Math.abs(ball.position.x - (-GOAL_WIDTH/2)) < postRadius && ball.position.y < GOAL_HEIGHT && Math.abs(ball.position.z - GOAL_Z) < postRadius) {
+                handleResult("POST!", false);
+                return;
+            }
+            if (Math.abs(ball.position.x - (GOAL_WIDTH/2)) < postRadius && ball.position.y < GOAL_HEIGHT && Math.abs(ball.position.z - GOAL_Z) < postRadius) {
+                handleResult("POST!", false);
+                return;
+            }
+
+            const goalieBox = new THREE.Box3().setFromObject(goalieGroup);
+            goalieBox.expandByScalar(BALL_RADIUS * 0.7);
+
+            if (goalieBox.containsPoint(ball.position) && ball.position.z > GOAL_Z - 1) {
+                state.ballVelocity.z *= -0.5;
+                handleResult("SAVED!", false);
+                return;
+            }
+
+            if (goalBoundingBox.containsPoint(ball.position)) {
+                state.ballVelocity.multiplyScalar(0.2);
+                const msg = state.isCucchiaio ? "To fatto er cucchiaio de totti" : "GOAL!";
+                handleResult(msg, true);
+                return;
+            }
+
+            if (ball.position.z < GOAL_Z - 2) {
+                handleResult("MISS!", false);
+                return;
+            }
+        }
+
+        function handleResult(message, isGoal) {
+            if (collisionProcessed) return;
+            collisionProcessed = true;
+
+            const msgEl = document.getElementById('message-text');
+            const msgContainer = document.getElementById('message-container');
+
+            msgEl.innerText = message;
+            const isLongText = message.length > 10;
+            const textSize = isLongText ? "text-2xl sm:text-4xl" : "text-5xl sm:text-7xl";
+
+            if (isGoal) {
+                msgEl.className = `${textSize} font-black text-green-400 drop-shadow-[0_6px_6px_rgba(0,0,0,0.9)] uppercase italic transform scale-125 transition-all duration-300`;
+                state.score++;
+                state.streak++;
+                document.getElementById('score-goals').innerText = state.score;
+                document.getElementById('score-streak').innerText = state.streak;
+            } else {
+                msgEl.className = `${textSize} font-black text-red-500 drop-shadow-[0_6px_6px_rgba(0,0,0,0.9)] uppercase italic transform scale-125 transition-all duration-300`;
+                state.misses++;
+                state.streak = 0;
+                document.getElementById('score-misses').innerText = state.misses;
+                document.getElementById('score-streak').innerText = state.streak;
+            }
+
+            msgContainer.classList.remove('hidden');
+
+            setTimeout(resetTurn, isLongText ? 3500 : 2200);
+        }
+
+        function resetTurn() {
+            ball.position.copy(BALL_START_POS);
+            state.ballVelocity.set(0, 0, 0);
+            state.ballSpin.set(0, 0, 0);
+
+            goalieGroup.position.copy(goalieGroup.userData.startPos);
+            goalieGroup.rotation.z = 0;
+            goalieGroup.userData.isDiving = false;
+
+            const limbs = goalieGroup.userData.limbs;
+            limbs.leftArm.rotation.set(0, 0, 0);
+            limbs.rightArm.rotation.set(0, 0, 0);
+
+            state.shotTaken = false;
+            state.isAiming = true;
+            collisionProcessed = false;
+
+            document.getElementById('message-container').classList.add('hidden');
+            crosshair.style.display = 'flex';
+            document.getElementById('instructions').innerText = "Hold to power up shot";
+            document.getElementById('power-bar-fill').style.width = '0%';
+        }
+
+        function resetGame() {
+            state.score = 0;
+            state.misses = 0;
+            state.streak = 0;
+            document.getElementById('score-goals').innerText = '0';
+            document.getElementById('score-misses').innerText = '0';
+            document.getElementById('score-streak').innerText = '0';
+            resetTurn();
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        window.onload = init;
+    </script>
+</body>
+</html>
