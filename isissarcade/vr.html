@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ISISS ARCADE VR — Esperienze immersive</title>
+  <meta name="theme-color" content="#08111f">
+  <link rel="icon" type="image/png" href="assets/img/isiss-logo.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/css/style.css">
+  <script>
+    // Sul Meta Quest non mostrare la vetrina 2D: porta direttamente all'esperienza MR.
+    (function () {
+      var isQuest = /OculusBrowser|Quest/i.test(navigator.userAgent || '');
+      var forcePc = /[?&]pc(&|=|$)/.test(location.search);
+      if (isQuest && !forcePc) location.replace('games/vr-space-blaster/index.html');
+    })();
+  </script>
+</head>
+<body class="vr-page">
+
+  <div class="site-background" aria-hidden="true">
+    <div class="background-glow background-glow-one"></div>
+    <div class="background-glow background-glow-two"></div>
+    <div class="background-noise"></div>
+  </div>
+
+  <header class="vr-header">
+    <a href="vr.html" class="vr-brand" aria-label="ISISS Arcade VR">
+      <span class="vr-logo"><img src="assets/img/isiss-logo.png" alt=""></span>
+      <span>
+        <small>ISISS MATESE</small>
+        <strong>ARCADE VR</strong>
+      </span>
+    </a>
+
+    <div class="device-badge" id="deviceBadge">Controllo del visore…</div>
+  </header>
+
+  <main class="vr-main">
+    <section class="vr-hero">
+      <span class="section-kicker">🥽 Esperienze immersive</span>
+      <h1>Entra nel mondo <span>VR.</span></h1>
+      <p>Scegli un'esperienza e usa i controller per iniziare. Questa pagina è pensata per essere semplice e leggibile direttamente dal visore.</p>
+    </section>
+
+    <section class="vr-grid" id="vrGrid" aria-label="Giochi VR"></section>
+  </main>
+
+  <footer class="vr-footer">
+    <a href="index.html?pc" class="nav-btn">← Torna alla vetrina</a>
+  </footer>
+
+  <script src="assets/js/games-data.js"></script>
+  <script>
+    const isQuest = /OculusBrowser|Quest/i.test(navigator.userAgent || '');
+    const badge = document.getElementById('deviceBadge');
+
+    if (isQuest) {
+      badge.innerHTML = '<span class="status-dot"></span> Visore pronto';
+      badge.classList.add('quest');
+    } else {
+      badge.innerHTML = '<span class="status-dot"></span> Modalità anteprima';
+    }
+
+    const grid = document.getElementById('vrGrid');
+
+    if (!VR_GAMES.length) {
+      grid.innerHTML = `
+        <div class="vr-empty">
+          <div class="vr-empty-icon">🥽</div>
+          <strong>I giochi VR stanno arrivando</strong>
+          <p>Questa sezione è pronta per accogliere le prossime esperienze immersive dell'istituto.</p>
+        </div>
+      `;
+    } else {
+      VR_GAMES.forEach(game => {
+        const color = game.accentColor || '#55c8ff';
+        const card = document.createElement('article');
+        card.className = 'vr-card';
+        card.style.setProperty('--vr-accent', color);
+        card.innerHTML = `
+          <div class="vr-card-media">
+            <img src="${game.photo}" alt="${game.title}" loading="lazy">
+          </div>
+          <div class="vr-card-content">
+            <span class="vr-card-icon">${game.icon || '🥽'}</span>
+            <h2>${game.title}</h2>
+            <p>${game.tagline || ''}</p>
+            <a href="${game.path}" class="btn-play">GIOCA ORA <span>→</span></a>
+          </div>
+        `;
+        grid.appendChild(card);
+      });
+    }
+  </script>
+</body>
+</html>

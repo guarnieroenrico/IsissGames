@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ISISS Matese Logo Blaster AR</title>
+  <link rel="icon" type="image/png" href="../../assets/img/isiss-logo.png">
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;700;800&family=Space+Grotesk:wght@600;700&display=swap" rel="stylesheet">
+  <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
+  <script src="../../assets/js/ar-common.js"></script>
+  <script>
+Arc.initOverlay({
+  title: 'ISISS Matese Logo Blaster',
+  subtitle: 'Spara al logo ISISS Matese nella tua stanza!',
+  howto: [
+    '<b>Trigger</b>: spara il laser al logo ISISS Matese.',
+    'Colpisci il logo per ottenere punti e aumentare la combo.',
+    'Il logo si muove nella stanza e cerca di sfuggire ai tuoi colpi.',
+    'A / X = ricentra il gioco davanti a te.',
+    'Hai bisogno di spazio libero attorno a te.'
+  ]
+});
+
+AFRAME.registerComponent('blaster-game', {
+  init() {
+    const THREE = AFRAME.THREE;
+    this.root = new THREE.Group();
+    this.el.setObject3D('game', this.root);
+    this.target = null;
+    this.score = 0;
+    this.combo = 0;
+    this.shots = 0;
+    this.hits = 0;
+    this.running = false;
+    this.lastShot = 0;
+    this.msgEl = document.getElementById('msg');
+    this.hudEl = document.getElementById('hud');
+    this.beams = [];
+    this.tmp = new THREE.Vector3();
+    this.tmp2 = new THREE.Vector3();
+    this.vel = new THREE.Vector3();
+    this.dir = new THREE.Vector3();
+    this.pos = new THREE.Vector3();
+    this.targetPos = new THREE.Vector3();
+
+    const texture = new THREE.TextureLoader().load('../../assets/img/isiss-logo.png');
+    texture.colorSpace = THREE.SRGBColorSpace;
+    const material = new THREE.MeshBasicMaterial({map: texture, transparent: true, side: THREE.DoubleSide, alphaTest: 0.05});
+    this.target = new THREE.Mesh(new THREE.PlaneGeometry(0.72, 0.72), material);
+    this.target.visible = false;
+    this.target.position.set(0, 1.35, -1.8);
+    this.root.add(this.target);
+
+    const ringMat = new THREE.MeshBasicMaterial({color: 0x55ddff, transparent: true, opacity: 0.75, side: THREE.DoubleSide});
+    this.ring = new THREE.Mesh(new THREE.RingGeometry(0.39, 0.42, 64), ringMat);
+    this.ring.position.z = 0.005;
+    this.target.add(this.ring);
+
+    Arc.onStart(() => { this.running = true; this.newGame(); });
+    Arc.onTrigger((ray) => this.shoot(ray));
+    ['left','right'].forEach(h => document.getElementById(h === 'left' ? 'lc' : 'rc').addEventListener('gripdown', () => this.recenter()));
+    window.addEventListener('keydown', e => { if (e.key.toLowerCase() === 'r') this.recenter(); });
+  },
+
+  newGame() {
+    this.score = 0; this.combo = 0; this.shots = 0; this.hits = 0;
+    this.running = true;
+    this.target.visible = true;
+    this.target.position.set(0, 1.35, -1.8);
+    this.vel.set(0.32, 0.08, 0.18);
+    this.say('COLPISCI IL LOGO ISISS MATESE', 2200);
+    this.hud();
+  },
+
+  head() { return Arc.inXR ? Arc.headLocal() : new AFRAME.THREE.Vector3(0, 1.6, 0); },
+
+  recenter() {
+    if (Arc.inXR) Arc.recenter();
+    const h = this.head();
+    this.target.position.set(h.x, Math.max(1.1, h.y - 0.15), h.z - 1.8);
+  },
+
+  say(text, ms) {
+    this.msgEl.setAttribute('value', text || '');
+    clearTimeout(this._sayTimer);
+    if (ms) this._sayTimer = setTimeout(() => this.msgEl.setAttribute('value', ''), ms);
+  },
+
+  hud() {
+    const acc = this.shots ? Math.round(this.hits / this.shots * 100) : 100;
+    this.hudEl.setAttribute('value', `PUNTI ${this.score}   COMBO x${Math.max(1,this.combo)}\nCOLPI ${this.hits}/${this.shots}   PRECISIONE ${acc}%`);
+  },
+
+  shoot(ray) {
+    if (!this.running || !this.target.visible) return;
+    const now = performance.now();
+    if (now - this.lastShot < 120) return;
+    this.lastShot = now;
+    this.shots++;
+
+    const origin = ray.origin.clone();
+    const dir = ray.dir.clone().normalize();
+    const to = this.target.getWorldPosition(this.tmp).sub(origin);
+    const t = to.dot(dir);
+    const closest = origin.clone().addScaledVector(dir, Math.max(0, t));
+    const d = closest.distanceTo(this.tmp);
+    const hit = t > 0 && t < 12 && d < 0.42;
+
+    const end = origin.clone().addScaledVector(dir, hit ? t : 6);
+    this.beam(origin, end);
+
+    if (hit) {
+      this.hits++;
+      this.combo++;
+      this.score += 100 * Math.min(this.combo, 5);
+      this.say(`CENTRO!  +${100 * Math.min(this.combo,5)}`, 650);
+      this.target.scale.setScalar(1.18);
+      this.vel.multiplyScalar(1.25);
+      Arc.haptic('right', 0.75, 55);
+      Arc.beep(820, 0.08, 'square', 0.08, 1400);
+    } else {
+      this.combo = 0;
+      Arc.beep(180, 0.05, 'sine', 0.035, 100);
+    }
+    this.hud();
+  },
+
+  beam(a,b) {
+    const THREE = AFRAME.THREE;
+    const len = a.distanceTo(b);
+    const m = new THREE.Mesh(new THREE.BoxGeometry(0.012,0.012,len), new THREE.MeshBasicMaterial({color:0xff3b30, transparent:true, opacity:0.9}));
+    m.position.copy(a).lerp(b,0.5);
+    m.lookAt(b);
+    this.root.add(m);
+    this.beams.push({m, life:0.09});
+  },
+
+  tick(time, dtms) {
+    if (!this.running || !this.target) return;
+    const dt = Math.min(dtms/1000,0.05);
+    const h = this.head();
+
+    // Movimento lento e continuo nello spazio, sempre davanti/attorno all'utente.
+    this.target.position.addScaledVector(this.vel, dt);
+    if (this.target.position.distanceTo(h) > 3.2) {
+      this.tmp.copy(h).sub(this.target.position).normalize();
+      this.vel.lerp(this.tmp.multiplyScalar(0.65), Math.min(1,dt*1.5));
+    }
+    if (this.target.position.y < 0.75 || this.target.position.y > 1.95) this.vel.y *= -1;
+    this.target.position.y = AFRAME.THREE.MathUtils.clamp(this.target.position.y,0.75,1.95);
+    if (Math.abs(this.target.position.x-h.x) > 2.7) this.vel.x *= -1;
+    if (Math.abs(this.target.position.z-h.z) > 2.7) this.vel.z *= -1;
+    this.vel.x += Math.sin(time/1200)*0.035*dt;
+    this.vel.z += Math.cos(time/1500)*0.035*dt;
+
+    this.target.lookAt(h.x, this.target.position.y, h.z);
+    this.ring.rotation.z += dt*1.8;
+    const pulse = 1 + Math.sin(time/160)*0.035;
+    this.target.scale.lerp(this.tmp2.set(pulse,pulse,pulse), Math.min(1,dt*8));
+
+    this.beams = this.beams.filter(b => {
+      b.life -= dt;
+      b.m.material.opacity = Math.max(0,b.life/0.09);
+      if (b.life <= 0) { this.root.remove(b.m); b.m.geometry.dispose(); b.m.material.dispose(); return false; }
+      return true;
+    });
+  }
+});
+  </script>
+</head>
+<body>
+<a-scene webxr="referenceSpaceType: local-floor; optionalFeatures: hit-test"
+         xr-mode-ui="enabled: false" background="transparent: true" renderer="alpha: true; antialias: true"
+         cursor="rayOrigin: mouse" raycaster="objects: .clickable" loading-screen="enabled: false">
+  <a-entity id="rig">
+    <a-entity id="cam" camera look-controls="touchEnabled: false" position="0 1.6 0">
+      <!-- HUD fissato alla testa + lampo rosso quando vieni colpito -->
+      <a-text id="hud" value="" align="center" width="1.3" color="#99ffff" position="0 -0.32 -0.9"></a-text>
+      <a-plane id="flash" width="3" height="3" position="0 0 -0.3" material="color: #ff0000; opacity: 0; transparent: true; depthTest: false; shader: flat"></a-plane>
+    </a-entity>
+    <a-entity id="lc" laser-controls="hand: left" raycaster="far: 8; objects: .clickable"></a-entity>
+    <a-entity id="rc" laser-controls="hand: right" raycaster="far: 8; objects: .clickable"></a-entity>
+  </a-entity>
+  <a-entity arc-world id="world">
+    <a-entity light="type: ambient; intensity: 0.8; color: #ffffff"></a-entity>
+    <a-entity light="type: point; intensity: 1; distance: 12; color: #ffffff" position="0 2.5 0"></a-entity>
+    <a-text id="msg" value="" align="center" width="3" color="#ffd400" position="0 1.7 -1.8"></a-text>
+    <a-entity blaster-game></a-entity>
+  </a-entity>
+</a-scene>
+</body>
+</html>
