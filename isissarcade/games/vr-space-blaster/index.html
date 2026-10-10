@@ -1,0 +1,582 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>ISISS Matese — Logo Blaster MR</title>
+<link rel="icon" type="image/png" href="../../assets/img/isiss-logo.png">
+<style>
+:root{--ink:#f6f8ff;--muted:#aab5ca;--line:rgba(255,255,255,.14);--accent:#ff7a1a;--accent2:#12b5c9}
+*{box-sizing:border-box}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#050812;color:var(--ink);font-family:system-ui,-apple-system,"Segoe UI",sans-serif}
+#xrCanvas{position:fixed;inset:0;width:100%;height:100%;touch-action:none}
+.overlay{position:fixed;inset:0;z-index:30;background:linear-gradient(180deg,rgba(3,6,14,.94),rgba(3,6,14,.8));display:flex;align-items:center;justify-content:center;padding:20px;overflow:auto}
+.card{width:min(560px,100%);background:rgba(12,19,38,.95);border:1px solid var(--line);border-radius:28px;padding:30px;box-shadow:0 28px 100px rgba(0,0,0,.55)}
+.brand{display:flex;align-items:center;gap:14px;margin-bottom:18px}
+.brand img{width:64px;height:64px;object-fit:contain;border-radius:15px;background:#fff}
+.eyebrow{font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:#9faec7;font-weight:800}
+h1{font-size:clamp(30px,6vw,48px);line-height:1;margin:0 0 12px}
+p{color:var(--muted);line-height:1.55;margin:0 0 14px}
+.rules{display:grid;grid-template-columns:repeat(3,1fr);gap:9px;margin:18px 0}
+.rule{border:1px solid var(--line);border-radius:15px;padding:12px;background:rgba(255,255,255,.03)}
+.rule b{display:block;font-size:18px}.rule span{display:block;color:var(--muted);font-size:11px;margin-top:4px}
+.btn{width:100%;border:0;border-radius:15px;padding:15px 18px;background:linear-gradient(100deg,var(--accent),#e6338f 48%,var(--accent2));color:#07101d;font-size:16px;font-weight:900;cursor:pointer;margin-top:10px}
+.btn.ghost{background:rgba(255,255,255,.08);color:var(--ink);border:1px solid var(--line)}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.status{min-height:21px;margin-top:12px;color:var(--muted);font-size:13px}
+.hidden{display:none!important}
+@media(max-width:560px){.rules{grid-template-columns:1fr}.card{padding:22px}}
+.modes{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:0 0 6px}
+.mode{border:1px solid var(--line);border-radius:14px;padding:11px 6px;background:rgba(255,255,255,.04);color:var(--ink);font-weight:800;font-size:14px;cursor:pointer}
+.mode.active{background:linear-gradient(100deg,var(--accent),#e6338f 55%,var(--accent2));color:#07101d;border-color:transparent}
+.mode-desc{font-size:12px;color:var(--muted);margin:0 0 8px;min-height:16px}
+.back{display:inline-block;margin-top:12px;color:var(--accent2);text-decoration:none;font-size:14px}
+</style>
+</head>
+<body>
+<canvas id="xrCanvas"></canvas>
+
+<div id="start" class="overlay"><div class="card">
+  <div class="brand"><img src="../../assets/img/isiss-logo.png" alt="Logo ISISS Matese"><div><div class="eyebrow">ISISS Matese</div><div>Mixed Reality Game</div></div></div>
+  <h1>Logo Blaster</h1>
+  <p>Il logo ISISS vola nella tua stanza, evita i mobili e scappa quando ti avvicini. Colpiscilo al centro per il bonus <b>PERFETTO</b> e prendi i badge <b>ITI · ITA · IPSEOA</b> per guadagnare tempo.</p>
+  <div class="rules"><div class="rule"><b>60s</b><span>partita</span></div><div class="rule"><b>×5</b><span>combo</span></div><div class="rule"><b>🎯</b><span>centro ×2</span></div></div>
+  <div class="modes"><button class="mode active" data-mode="classic">CLASSIC</button><button class="mode" data-mode="blitz">BLITZ</button><button class="mode" data-mode="precision">PRECISION</button></div>
+  <div id="modeDesc" class="mode-desc">60 secondi · combo e punteggio</div>
+  <button id="mrBtn" class="btn" disabled>Controllo WebXR…</button>
+  <button id="screenBtn" class="btn ghost">Gioca a schermo (telefono / PC)</button>
+  <div id="status" class="status">Sto verificando il supporto del visore…</div>
+  <div id="best" class="status"></div>
+  <a class="back" href="../../vr.html">← Torna alla vetrina VR</a>
+  <a class="back" href="../vr-tiro-al-logo/index.html">🥫 Prova anche: Tiro al Logo</a>
+  <a class="back" href="../vr-logo-ninja/index.html">⚔️ Prova anche: Logo Ninja</a>
+</div></div>
+
+<script type="module">
+import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js";
+
+const $ = s => document.querySelector(s);
+const canvas = $("#xrCanvas"), startUI = $("#start"), mrBtn = $("#mrBtn"), screenBtn = $("#screenBtn"),
+      statusEl = $("#status"), bestEl = $("#best");
+const setStatus = t => statusEl.textContent = t;
+
+const CFG = {size:.62, spawnDistance:1.7, minY:.55, maxY:2.0, speed:.45, fleeSpeed:1.1, roamRadius:3.0,
+             avoidMargin:.34, personalSpace:.7, handSpace:.4, gameTime:60, bonusTime:3};
+const BEST_KEY = "isiss_logo_blaster_best";
+const MODES = {
+  classic:   {name:"CLASSIC",   duration:60, points:100, spd:1,    size:1,   desc:"60 secondi · combo e punteggio"},
+  blitz:     {name:"BLITZ",     duration:30, points:150, spd:1.45, size:.92, desc:"30 secondi · tutto più veloce"},
+  precision: {name:"PRECISION", duration:60, points:200, spd:.86,  size:.78, desc:"60 secondi · bersaglio piccolo"}
+};
+let modeId = "classic", M = MODES.classic, best = 0;
+const loadBest = () => { try { return +localStorage.getItem(BEST_KEY + "_" + modeId) || 0; } catch { return 0; } };
+const showBest = () => bestEl.textContent = best ? "Record " + M.name + ": " + best + " punti" : "";
+function selectMode(id){
+  if (!MODES[id]) return; modeId = id; M = MODES[id]; best = loadBest(); showBest();
+  $("#modeDesc").textContent = M.desc;
+  document.querySelectorAll(".mode").forEach(b => b.classList.toggle("active", b.dataset.mode === id));
+  if (mode === "over"){ S.hover = null; drawEnd(); }
+}
+best = loadBest(); showBest();
+
+/* ---------- Stato ---------- */
+let scene, camera, renderer, session = null, last = null, mode = "idle", screenMode = false;
+let logo, pivot, shadow, ASP = 1, hud, endP, floor, hudKey = "";
+const controllers = [], planes = [], badges = [], popups = [], bolts = [];
+const S = {spawned:false, spawnT:0, wp:new THREE.Vector3(), vel:new THREE.Vector3(), pause:0, flee:0, dashT:0, punch:0, yaw:0,
+  center:new THREE.Vector3(), poly:[], score:0, hits:0, shots:0, combo:0, bestCombo:0, timeLeft:60, cd:3, cdInit:false,
+  badgeCd:4, hover:null, newRecord:false, hudYaw:0, hudInit:false};
+const head = new THREE.Vector3(), fwd = new THREE.Vector3(), gaze = new THREE.Vector3(), tmp = new THREE.Vector3(), tmp2 = new THREE.Vector3();
+const rc = new THREE.Raycaster();
+const look = {yaw:0, pitch:0};
+
+const rand = (a,b) => a + Math.random()*(b-a);
+const clamp = THREE.MathUtils.clamp;
+const easeOutBack = t => { const c = 1.70158; return 1 + (c+1)*Math.pow(t-1,3) + c*Math.pow(t-1,2); };
+const angDiff = (a,b) => Math.atan2(Math.sin(b-a), Math.cos(b-a));
+
+/* ---------- Suoni (sintetizzati, nessun file) ---------- */
+let actx = null;
+function tone(f, at, dur, type = "sine", vol = .1, f2 = null){
+  if (!actx) return;
+  const o = actx.createOscillator(), g = actx.createGain(), t0 = actx.currentTime + at;
+  o.type = type; o.frequency.setValueAtTime(f, t0);
+  if (f2) o.frequency.exponentialRampToValueAtTime(f2, t0 + dur);
+  g.gain.setValueAtTime(.0001, t0); g.gain.exponentialRampToValueAtTime(vol, t0 + .015);
+  g.gain.exponentialRampToValueAtTime(.0001, t0 + dur);
+  o.connect(g).connect(actx.destination); o.start(t0); o.stop(t0 + dur + .05);
+}
+const sfx = {
+  shoot:   () => tone(900, 0, .12, "sawtooth", .05, 220),
+  hit:     () => { tone(520, 0, .1, "triangle", .12); tone(780, .05, .16, "triangle", .1); },
+  perfect: () => [660,880,1320,1760].forEach((f,i) => tone(f, i*.06, .25, "sine", .1)),
+  miss:    () => tone(180, 0, .14, "square", .035, 90),
+  bonus:   () => [523,659,784,1047,1319].forEach((f,i) => tone(f, i*.07, .3, "triangle", .09)),
+  tick:    () => tone(660, 0, .12, "sine", .1),
+  go:      () => { tone(880, 0, .35, "square", .06); tone(1320, .1, .4, "sine", .08); },
+  end:     () => [784,659,523,392].forEach((f,i) => tone(f, i*.14, .35, "triangle", .1))
+};
+function unlockAudio(){ try { actx = actx || new (window.AudioContext || window.webkitAudioContext)(); actx.resume(); } catch {} }
+const buzz = (ctl, v, ms) => { try { ctl?.userData.source?.gamepad?.hapticActuators?.[0]?.pulse?.(v, ms); } catch {} };
+
+/* ---------- Particelle ---------- */
+const NP = 360, pPos = new Float32Array(NP*3), pCol = new Float32Array(NP*3), pVel = new Float32Array(NP*3),
+      pBase = new Float32Array(NP*3), pLife = new Float32Array(NP);
+const PAL = [[1,.48,.1],[.9,.2,.56],[.07,.71,.79],[.18,.81,.48],[1,.85,.25]];
+let pHead = 0, pts = null;
+function emit(x, y, z, n, sp){
+  for (let i=0;i<n;i++){
+    const k = pHead; pHead = (pHead+1) % NP;
+    const c = PAL[(Math.random()*PAL.length)|0], a = rand(0,6.283), b = rand(-1,1), r = Math.sqrt(1-b*b), v = sp*rand(.3,1);
+    pPos[k*3] = x; pPos[k*3+1] = y; pPos[k*3+2] = z;
+    pVel[k*3] = Math.cos(a)*r*v; pVel[k*3+1] = b*v; pVel[k*3+2] = Math.sin(a)*r*v;
+    pBase[k*3] = c[0]; pBase[k*3+1] = c[1]; pBase[k*3+2] = c[2]; pLife[k] = rand(.6,1.4);
+  }
+}
+function stepParticles(dt){
+  const d = Math.exp(-dt*1.6);
+  for (let k=0;k<NP;k++){
+    const L = pLife[k];
+    if (L <= 0){ pCol[k*3] = pCol[k*3+1] = pCol[k*3+2] = 0; continue; }
+    pLife[k] = L - dt; const f = Math.min(1, L);
+    for (let j=0;j<3;j++){ pVel[k*3+j] *= d; pPos[k*3+j] += pVel[k*3+j]*dt; pCol[k*3+j] = pBase[k*3+j]*f; }
+  }
+  pts.geometry.attributes.position.needsUpdate = true; pts.geometry.attributes.color.needsUpdate = true;
+}
+
+/* ---------- Pannelli 3D (HUD e schermata finale) ---------- */
+function makePanel(w, h, pw, ph){
+  const c = document.createElement("canvas"); c.width = pw; c.height = ph;
+  const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(w,h), new THREE.MeshBasicMaterial({map:tex, transparent:true, depthWrite:false, toneMapped:false}));
+  m.visible = false; m.renderOrder = 5; scene.add(m);
+  return {m, c, g:c.getContext("2d"), tex};
+}
+function rr(g, x, y, w, h, r, fill, stroke){
+  g.beginPath(); g.roundRect(x, y, w, h, r);
+  if (fill){ g.fillStyle = fill; g.fill(); }
+  if (stroke){ g.strokeStyle = stroke; g.lineWidth = 4; g.stroke(); }
+}
+function drawHud(){
+  const key = S.score + "|" + S.combo + "|" + Math.ceil(S.timeLeft);
+  if (key === hudKey) return; hudKey = key;
+  const g = hud.g; g.clearRect(0,0,640,200);
+  rr(g, 4, 4, 632, 192, 40, "rgba(10,16,31,.85)", "rgba(255,255,255,.22)");
+  g.textAlign = "center"; g.fillStyle = "#aab5ca"; g.font = "600 26px system-ui,sans-serif";
+  [["PUNTI",120],["COMBO",320],["TEMPO",520]].forEach(([l,x]) => g.fillText(l, x, 56));
+  g.font = "900 72px system-ui,sans-serif";
+  g.fillStyle = "#fff"; g.fillText(S.score, 120, 142);
+  g.fillStyle = "#ffd36b"; g.fillText("×" + clamp(S.combo,1,5), 320, 142);
+  g.fillStyle = S.timeLeft <= 10 ? "#ff6464" : "#fff"; g.fillText(Math.max(0, Math.ceil(S.timeLeft)), 520, 142);
+  hud.tex.needsUpdate = true;
+}
+const rankOf = s => s < 500 ? "Matricola" : s < 1200 ? "Studente" : s < 2200 ? "Programmatore" : s < 3500 ? "Hacker etico" : "Leggenda ISISS";
+function drawEnd(){
+  const g = endP.g; g.clearRect(0,0,1000,700);
+  rr(g, 6, 6, 988, 688, 48, "rgba(10,16,31,.94)", "rgba(255,255,255,.25)");
+  const gr = g.createLinearGradient(0,0,1000,0);
+  [[0,"#ff7a1a"],[.5,"#e6338f"],[1,"#12b5c9"]].forEach(([o,c]) => gr.addColorStop(o,c));
+  rr(g, 60, 34, 880, 8, 4, gr);
+  g.textAlign = "center"; g.fillStyle = "#aab5ca"; g.font = "700 26px system-ui,sans-serif"; g.fillText("PARTITA FINITA · " + M.name, 500, 84);
+  g.fillStyle = "#fff"; g.font = "900 52px system-ui,sans-serif"; g.fillText(rankOf(S.score), 500, 144);
+  g.font = "900 118px system-ui,sans-serif"; g.fillText(S.score, 500, 258);
+  g.font = "800 26px system-ui,sans-serif"; g.fillStyle = S.newRecord ? "#ffd36b" : "#aab5ca";
+  g.fillText(S.newRecord ? "★ NUOVO RECORD ★" : "Record: " + best, 500, 302);
+  const acc = S.shots ? Math.round(S.hits/S.shots*100) : 0;
+  [["COLPI", S.hits, 60], ["PRECISIONE", acc + "%", 360], ["COMBO MAX", "×" + clamp(S.bestCombo,1,5), 660]].forEach(([l,v,x]) => {
+    rr(g, x, 324, 280, 106, 24, "rgba(255,255,255,.06)", "rgba(255,255,255,.15)");
+    g.fillStyle = "#fff"; g.font = "900 48px system-ui,sans-serif"; g.fillText(v, x+140, 382);
+    g.fillStyle = "#aab5ca"; g.font = "700 19px system-ui,sans-serif"; g.fillText(l, x+140, 414);
+  });
+  Object.keys(MODES).forEach((id, i) => {
+    const x = 60 + i*300, on = id === modeId, hv = S.hover === "m:" + id;
+    rr(g, x, 452, 280, 62, 20, on ? gr : hv ? "rgba(255,255,255,.25)" : "rgba(255,255,255,.07)", on ? null : "rgba(255,255,255,.3)");
+    g.fillStyle = on ? "#07101d" : "#fff"; g.font = "900 26px system-ui,sans-serif"; g.fillText(MODES[id].name, x+140, 492);
+  });
+  rr(g, 60, 548, 420, 90, 28, S.hover === "again" ? "#fff" : gr);
+  rr(g, 520, 548, 420, 90, 28, S.hover === "exit" ? "#fff" : "rgba(255,255,255,.1)", "rgba(255,255,255,.35)");
+  g.fillStyle = "#07101d"; g.font = "900 36px system-ui,sans-serif"; g.fillText("RIGIOCA", 270, 606);
+  g.fillStyle = S.hover === "exit" ? "#07101d" : "#fff"; g.fillText("ESCI", 730, 606);
+  endP.tex.needsUpdate = true;
+}
+function btnAt(uv){
+  const x = uv.x*1000, y = (1-uv.y)*700;
+  if (y > 452 && y < 514){ const i = Math.floor((x-60)/300); return i >= 0 && i < 3 && (x-60) % 300 < 280 ? "m:" + Object.keys(MODES)[i] : null; }
+  if (y < 548 || y > 638) return null;
+  return x > 60 && x < 480 ? "again" : x > 520 && x < 940 ? "exit" : null;
+}
+
+/* ---------- Popup, laser, badge ---------- */
+function popup(text, color, pos, size = .26, life = 1.1){
+  const p = popups.find(q => q.life <= 0); if (!p) return;
+  const g = p.g; g.clearRect(0,0,512,128);
+  g.font = "900 78px system-ui,sans-serif"; g.textAlign = "center"; g.textBaseline = "middle";
+  g.lineWidth = 12; g.strokeStyle = "rgba(0,0,0,.65)"; g.strokeText(text, 256, 66);
+  g.fillStyle = color; g.fillText(text, 256, 66); p.tex.needsUpdate = true;
+  p.s.position.copy(pos); p.s.scale.set(size*4, size, 1); p.life = p.max = life; p.s.visible = true;
+}
+const bannerAt = (txt, color = "#fff") => popup(txt, color, tmp2.copy(head).addScaledVector(fwd, 1.6).setY(head.y + .1).clone(), .5, .9);
+function bolt(a, b){
+  const k = bolts.find(x => x.life <= 0); if (!k) return;
+  k.life = .14; k.m.position.copy(a).add(b).multiplyScalar(.5); k.m.lookAt(b);
+  k.m.scale.set(1, 1, Math.max(.01, a.distanceTo(b))); k.m.material.color.setHex(S.combo >= 3 ? 0xffd36b : 0xff7a1a); k.m.visible = true;
+}
+const BADGES = [{t:"ITI", c:"#ff7a1a"}, {t:"ITA", c:"#2fcf7a"}, {t:"IPSEOA", c:"#e6338f"}];
+function makeBadge(def){
+  const c = document.createElement("canvas"); c.width = c.height = 256; const g = c.getContext("2d");
+  const gr = g.createRadialGradient(128,128,20,128,128,124); gr.addColorStop(0, "#fff"); gr.addColorStop(.35, def.c); gr.addColorStop(1, "rgba(0,0,0,.2)");
+  g.fillStyle = gr; g.beginPath(); g.arc(128,128,120,0,6.283); g.fill();
+  g.lineWidth = 10; g.strokeStyle = "#fff"; g.stroke();
+  g.fillStyle = "#07101d"; g.textAlign = "center"; g.textBaseline = "middle";
+  g.font = "900 " + (def.t.length > 3 ? 54 : 78) + "px system-ui,sans-serif"; g.fillText(def.t, 128, 118);
+  g.font = "800 26px system-ui,sans-serif"; g.fillText("+3s", 128, 190);
+  const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(.3,.3), new THREE.MeshBasicMaterial({map:tex, transparent:true, side:THREE.DoubleSide, depthWrite:false}));
+  m.visible = false; scene.add(m);
+  badges.push({m, def, alive:false, life:0, age:0, y:1.2, phase:0});
+}
+function killBadge(b){ b.alive = false; b.m.visible = false; }
+function spawnBadge(){
+  const b = badges.find(x => !x.alive); if (!b) return;
+  for (let i=0;i<30;i++){
+    const a = rand(0, 6.283), r = rand(1.0, 2.4), x = head.x + Math.cos(a)*r, z = head.z + Math.sin(a)*r, y = rand(.9, 1.8);
+    if (!inArea(x,z)) continue;
+    tmp.set(x,y,z); if (planeCollision(tmp, S.vel, .4, false)) continue;
+    b.m.position.copy(tmp); b.y = y; b.alive = true; b.life = 6; b.age = 0; b.phase = rand(0,6); b.m.visible = true; b.m.scale.setScalar(.001); return;
+  }
+}
+
+/* ---------- Stanza: confini e piani rilevati ---------- */
+function pointInPoly(x, z, poly){
+  let inside = false;
+  for (let i=0,j=poly.length-1;i<poly.length;j=i++){
+    const a = poly[i], b = poly[j];
+    if ((a.z>z) !== (b.z>z) && x < (b.x-a.x)*(z-a.z)/(b.z-a.z)+a.x) inside = !inside;
+  }
+  return inside;
+}
+const inArea = (x,z) => S.poly.length >= 3 ? pointInPoly(x,z,S.poly) : Math.hypot(x-S.center.x, z-S.center.z) < CFG.roamRadius;
+function updatePlanes(frame, refSpace){
+  planes.length = 0; const set = frame?.detectedPlanes; if (!set) return;
+  for (const plane of set){
+    const pose = frame.getPose(plane.planeSpace, refSpace); if (!pose) continue;
+    const m = new THREE.Matrix4().fromArray(pose.transform.matrix);
+    let minX=1e9, maxX=-1e9, minZ=1e9, maxZ=-1e9;
+    for (const p of plane.polygon){ minX = Math.min(minX,p.x); maxX = Math.max(maxX,p.x); minZ = Math.min(minZ,p.z); maxZ = Math.max(maxZ,p.z); }
+    planes.push({inv:m.clone().invert(), normal:new THREE.Vector3(m.elements[4], m.elements[5], m.elements[6]).normalize(), minX, maxX, minZ, maxZ});
+  }
+}
+function planeCollision(pos, vel, margin, apply){
+  let hit = false;
+  for (const pl of planes){
+    tmp2.copy(pos).applyMatrix4(pl.inv);
+    if (Math.abs(tmp2.y) < margin && tmp2.x > pl.minX-margin && tmp2.x < pl.maxX+margin && tmp2.z > pl.minZ-margin && tmp2.z < pl.maxZ+margin){
+      hit = true;
+      if (apply){
+        const side = tmp2.y >= 0 ? 1 : -1, n = new THREE.Vector3().copy(pl.normal).multiplyScalar(side);
+        pos.addScaledVector(n, (margin - Math.abs(tmp2.y))*.25);
+        const into = vel.dot(n); if (into < 0) vel.addScaledVector(n, -into);
+        S.pause = Math.min(S.pause, .18); S.wp.copy(pos).addScaledVector(n, 1); S.wp.y = clamp(S.wp.y, CFG.minY, CFG.maxY);
+      }
+    }
+  }
+  return hit;
+}
+function pickWaypoint(){
+  for (let i=0;i<45;i++){
+    const a = rand(0,6.283), r = rand(.9, CFG.roamRadius), x = head.x + Math.cos(a)*r, z = head.z + Math.sin(a)*r, y = rand(CFG.minY+.15, CFG.maxY-.2);
+    if (!inArea(x,z)) continue;
+    const v = new THREE.Vector3(x,y,z); if (planeCollision(v, S.vel, CFG.avoidMargin*1.5, false)) continue;
+    S.wp.copy(v); return;
+  }
+  S.wp.set(head.x + fwd.x*1.3, 1.2, head.z + fwd.z*1.3);
+}
+
+/* ---------- Scena ---------- */
+function init(){
+  scene = new THREE.Scene();
+  camera = new THREE.PerspectiveCamera(70, innerWidth/innerHeight, .01, 100);
+  renderer = new THREE.WebGLRenderer({canvas, antialias:true, alpha:true});
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2)); renderer.setSize(innerWidth, innerHeight);
+  renderer.xr.enabled = true; renderer.xr.setReferenceSpaceType("local-floor");
+  floor = new THREE.GridHelper(12, 24, 0x2a3b66, 0x1a2748); floor.visible = false; scene.add(floor);
+
+  const tex = new THREE.TextureLoader().load("../../assets/img/isiss-logo.png", t => { ASP = t.image.height / t.image.width; logo.scale.y = ASP; });
+  tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4;
+  logo = new THREE.Mesh(new THREE.PlaneGeometry(CFG.size, CFG.size),
+    new THREE.MeshBasicMaterial({map:tex, transparent:true, alphaTest:.02, side:THREE.DoubleSide}));
+  pivot = new THREE.Group(); pivot.add(logo); pivot.rotation.order = "YXZ"; pivot.visible = false; scene.add(pivot);
+  const sc = document.createElement("canvas"); sc.width = sc.height = 128; const sg = sc.getContext("2d");
+  const sgr = sg.createRadialGradient(64,64,3,64,64,64); sgr.addColorStop(0,"rgba(0,0,0,.5)"); sgr.addColorStop(1,"rgba(0,0,0,0)");
+  sg.fillStyle = sgr; sg.fillRect(0,0,128,128);
+  shadow = new THREE.Mesh(new THREE.PlaneGeometry(1,1).rotateX(-Math.PI/2), new THREE.MeshBasicMaterial({map:new THREE.CanvasTexture(sc), transparent:true, depthWrite:false}));
+  shadow.visible = false; scene.add(shadow);
+
+  hud = makePanel(.5, .156, 640, 200); endP = makePanel(1.1, .77, 1000, 700);
+  BADGES.forEach(makeBadge);
+  for (let i=0;i<10;i++){
+    const c = document.createElement("canvas"); c.width = 512; c.height = 128;
+    const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
+    const s = new THREE.Sprite(new THREE.SpriteMaterial({map:t, transparent:true, depthTest:false}));
+    s.visible = false; s.renderOrder = 10; scene.add(s); popups.push({s, g:c.getContext("2d"), tex:t, life:0, max:1});
+  }
+  for (let i=0;i<8;i++){
+    const m = new THREE.Mesh(new THREE.CylinderGeometry(.009,.009,1,6).rotateX(Math.PI/2),
+      new THREE.MeshBasicMaterial({color:0xff7a1a, transparent:true, blending:THREE.AdditiveBlending, depthWrite:false}));
+    m.visible = false; scene.add(m); bolts.push({m, life:0});
+  }
+  const pg = new THREE.BufferGeometry();
+  pg.setAttribute("position", new THREE.BufferAttribute(pPos,3)); pg.setAttribute("color", new THREE.BufferAttribute(pCol,3));
+  const dc = document.createElement("canvas"); dc.width = dc.height = 64; const dg = dc.getContext("2d");
+  const dgr = dg.createRadialGradient(32,32,0,32,32,32); dgr.addColorStop(0,"#fff"); dgr.addColorStop(1,"rgba(255,255,255,0)"); dg.fillStyle = dgr; dg.fillRect(0,0,64,64);
+  pts = new THREE.Points(pg, new THREE.PointsMaterial({size:.05, map:new THREE.CanvasTexture(dc), vertexColors:true, transparent:true, blending:THREE.AdditiveBlending, depthWrite:false}));
+  pts.frustumCulled = false; scene.add(pts);
+
+  for (let i=0;i<2;i++){
+    const ctl = renderer.xr.getController(i); ctl.userData.connected = false;
+    ctl.addEventListener("connected", e => { ctl.userData.connected = true; ctl.userData.source = e.data; ctl.userData.line.visible = true; });
+    ctl.addEventListener("disconnected", () => { ctl.userData.connected = false; ctl.userData.source = null; ctl.userData.line.visible = false; });
+    ctl.addEventListener("selectstart", () => {           // un solo evento = un solo colpo
+      ctl.updateMatrixWorld(true);
+      const o = new THREE.Vector3().setFromMatrixPosition(ctl.matrixWorld), d = new THREE.Vector3(0,0,-1).transformDirection(ctl.matrixWorld);
+      fire(o, d, ctl);
+    });
+    const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3(0,0,-1)]),
+      new THREE.LineBasicMaterial({color:0xff7a1a, transparent:true, opacity:.9}));
+    line.scale.z = 4; line.visible = false; ctl.add(line); ctl.userData.line = line;
+    const dot = new THREE.Mesh(new THREE.RingGeometry(.018,.03,24), new THREE.MeshBasicMaterial({color:0xffffff, side:THREE.DoubleSide, depthTest:false}));
+    dot.visible = false; dot.renderOrder = 9; scene.add(dot); ctl.userData.dot = dot;
+    scene.add(ctl); controllers.push(ctl);
+  }
+  renderer.setAnimationLoop(render);
+  addEventListener("resize", () => { camera.aspect = innerWidth/innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });
+
+  // Modalità a schermo: tocca/clicca per sparare, trascina per guardarti intorno
+  let drag = null;
+  canvas.addEventListener("pointerdown", e => { if (screenMode){ drag = {sx:e.clientX, sy:e.clientY, x:e.clientX, y:e.clientY, moved:false}; canvas.setPointerCapture(e.pointerId); } });
+  canvas.addEventListener("pointermove", e => {
+    if (!drag) return;
+    if (Math.abs(e.clientX-drag.sx) + Math.abs(e.clientY-drag.sy) > 8) drag.moved = true;
+    if (drag.moved){
+      look.yaw -= (e.clientX-drag.x)*.004; look.pitch = clamp(look.pitch - (e.clientY-drag.y)*.004, -1, 1);
+      camera.rotation.set(look.pitch, look.yaw, 0, "YXZ");
+    }
+    drag.x = e.clientX; drag.y = e.clientY;
+  });
+  canvas.addEventListener("pointerup", e => {
+    if (!drag) return; const moved = drag.moved; drag = null; if (moved || !screenMode) return;
+    camera.updateMatrixWorld(true);
+    rc.setFromCamera(new THREE.Vector2(e.clientX/innerWidth*2-1, -(e.clientY/innerHeight)*2+1), camera);
+    fire(rc.ray.origin.clone(), rc.ray.direction.clone(), null);
+  });
+}
+
+/* ---------- Partita ---------- */
+function startGame(){
+  Object.assign(S, {spawned:false, spawnT:0, score:0, hits:0, shots:0, combo:0, bestCombo:0, timeLeft:M.duration, cd:3, cdInit:false,
+    flee:0, dashT:0, punch:0, pause:0, badgeCd:4, hover:null, newRecord:false, poly:[], hudInit:false});
+  planes.length = 0; S.vel.set(0,0,0); pivot.visible = false; shadow.visible = false; endP.m.visible = false;
+  badges.forEach(killBadge); hud.m.visible = true; hudKey = ""; mode = "countdown";
+}
+function spawn(){
+  S.center.copy(head);
+  pivot.position.copy(head).addScaledVector(fwd, CFG.spawnDistance); pivot.position.y = clamp(head.y, 1.1, 1.6);
+  S.yaw = Math.atan2(head.x-pivot.position.x, head.z-pivot.position.z); S.vel.set(0,0,0);
+  pickWaypoint(); S.spawned = true; S.spawnT = 0; pivot.visible = true; shadow.visible = true;
+  emit(pivot.position.x, pivot.position.y, pivot.position.z, 90, 1.4);
+}
+function endGame(){
+  mode = "over"; sfx.end(); hud.m.visible = false; badges.forEach(killBadge);
+  S.newRecord = S.score > best && S.score > 0;
+  if (S.newRecord){ best = S.score; try { localStorage.setItem(BEST_KEY + "_" + modeId, String(best)); } catch {} }
+  S.hover = null; drawEnd();
+  endP.m.position.copy(head).addScaledVector(fwd, 1.4); endP.m.position.y = Math.max(head.y - .05, 1.0); endP.m.visible = true;
+}
+function clickEnd(btn){
+  if (btn && btn.startsWith("m:")){ sfx.tick(); selectMode(btn.slice(2)); }
+  else if (btn === "again"){ sfx.go(); startGame(); }
+  else if (btn === "exit"){ if (screenMode) leave(); else session?.end(); }
+}
+function leave(){
+  mode = "idle"; screenMode = false; session = null; scene.background = null; floor.visible = false;
+  pivot.visible = shadow.visible = hud.m.visible = endP.m.visible = false; badges.forEach(killBadge);
+  controllers.forEach(c => c.userData.dot.visible = false);
+  startUI.classList.remove("hidden"); showBest(); checkXR();
+}
+
+function validUv(uv){ return Math.hypot(uv.x-.5, uv.y-.5) < .47; }   // solo il cerchio del logo, non gli angoli trasparenti
+function fire(origin, dir, ctl){
+  rc.set(origin, dir);
+  if (mode === "over"){ const h = rc.intersectObject(endP.m, false)[0]; if (h) clickEnd(btnAt(h.uv)); return; }
+  if (mode !== "playing" || !S.spawned) return;
+  S.shots++; sfx.shoot(); buzz(ctl, .3, 30);
+  let bestD = 12, badge = null, hp = null;
+  for (const b of badges){
+    if (!b.alive) continue;
+    const along = tmp.copy(b.m.position).sub(origin).dot(dir);
+    if (along > 0 && along < bestD && rc.ray.distanceToPoint(b.m.position) < .17){ bestD = along; badge = b; }
+  }
+  const h = rc.intersectObject(logo, false)[0];
+  if (h && validUv(h.uv) && h.distance < bestD){ bestD = h.distance; hp = h; badge = null; }
+  const endPt = hp ? hp.point.clone() : badge ? badge.m.position.clone() : origin.clone().addScaledVector(dir, 6);
+  bolt(origin.clone().addScaledVector(dir, .08), endPt);
+
+  if (hp){
+    const perfect = Math.hypot(hp.uv.x-.5, hp.uv.y-.5) < .13;
+    S.hits++; S.combo++; S.bestCombo = Math.max(S.bestCombo, S.combo);
+    const pts = Math.round(M.points*Math.min(5, S.combo)*(perfect ? 2 : 1)); S.score += pts;
+    popup((perfect ? "PERFETTO! " : "") + "+" + pts, perfect ? "#ffd36b" : "#ffffff", endPt, perfect ? .34 : .26);
+    emit(endPt.x, endPt.y, endPt.z, perfect ? 70 : 35, 1.2);
+    perfect ? sfx.perfect() : sfx.hit(); buzz(ctl, perfect ? 1 : .7, perfect ? 90 : 50);
+    S.punch = 1; S.dashT = .7; S.vel.multiplyScalar(.2); pickWaypoint();
+  } else if (badge){
+    S.hits++; S.score += 250; S.timeLeft += CFG.bonusTime;
+    popup(badge.def.t + "  +250  +3s", badge.def.c, endPt, .28, 1.4);
+    emit(endPt.x, endPt.y, endPt.z, 60, 1.4); sfx.bonus(); buzz(ctl, 1, 80); killBadge(badge);
+  } else { S.combo = 0; sfx.miss(); }
+}
+
+/* ---------- Movimento del logo ---------- */
+function moveLogo(dt, t){
+  const pos = pivot.position, prog = mode === "playing" ? clamp(1 - S.timeLeft/M.duration, 0, 1) : 0;
+  S.spawnT = Math.min(1, S.spawnT + dt/.8); const grow = easeOutBack(S.spawnT);
+  const dHead = Math.hypot(pos.x-head.x, pos.z-head.z);
+  let threat = null, td = 1e9;
+  if (dHead < CFG.personalSpace && Math.abs(pos.y-head.y) < 1){ threat = head; td = dHead; }
+  for (const c of controllers){
+    if (!c.userData.connected) continue;
+    tmp.setFromMatrixPosition(c.matrixWorld); const d = tmp.distanceTo(pos);
+    if (d < CFG.handSpace && d < td){ threat = tmp.clone(); td = d; }
+  }
+  if (threat && S.flee <= 0){
+    S.flee = 1; tmp.copy(pos).sub(threat); tmp.y = rand(-.1,.25); tmp.normalize();
+    S.wp.copy(pos).addScaledVector(tmp, 1.5); S.wp.y = clamp(S.wp.y, CFG.minY, CFG.maxY);
+    if (!inArea(S.wp.x, S.wp.z)) pickWaypoint(); S.pause = 0;
+  }
+  S.flee = Math.max(0, S.flee - dt); S.dashT = Math.max(0, S.dashT - dt);
+  if (dHead > CFG.roamRadius + .7 && S.flee <= 0){ pickWaypoint(); S.pause = 0; }
+  const speed = (S.flee > 0 ? CFG.fleeSpeed : CFG.speed)*(1 + .9*prog)*M.spd*(S.dashT > 0 ? 2.2 : 1);
+  tmp.copy(S.wp).sub(pos); const dist = tmp.length();
+  if (S.pause > 0){ S.pause -= dt; S.vel.multiplyScalar(Math.exp(-dt*3)); }
+  else if (dist < .15){ S.pause = rand(.5,1.6)*(1 - .6*prog); pickWaypoint(); }
+  else { tmp.normalize().multiplyScalar(speed); S.vel.lerp(tmp, 1 - Math.exp(-dt*(S.dashT > 0 ? 7 : 2.5))); }
+  pos.addScaledVector(S.vel, dt);
+  planeCollision(pos, S.vel, CFG.avoidMargin, true);
+  if (!inArea(pos.x, pos.z)){ tmp.set(S.center.x-pos.x, 0, S.center.z-pos.z).normalize(); S.vel.addScaledVector(tmp, dt*1.5); pos.addScaledVector(tmp, dt*.3); }
+  pos.y = clamp(pos.y, CFG.minY, CFG.maxY);
+  S.yaw += angDiff(S.yaw, Math.atan2(head.x-pos.x, head.z-pos.z))*(1 - Math.exp(-dt*3));
+  const bob = Math.sin(t*1.7)*.035; logo.position.y = bob;
+  pivot.rotation.y = S.yaw; pivot.rotation.x = clamp(-S.vel.y*.5, -.3, .3) + Math.sin(t*1.1)*.03;
+  pivot.rotation.z = clamp(-(S.vel.x*Math.cos(S.yaw) - S.vel.z*Math.sin(S.yaw))*.6, -.35, .35);
+  S.punch = Math.max(0, S.punch - dt*5);
+  pivot.scale.setScalar(Math.max(.001, grow)*M.size*(1 - .2*prog)*(1 - .18*S.punch)*(1 + Math.sin(t*2.2)*.012));
+  const h = Math.max(0, pos.y + bob);
+  shadow.position.set(pos.x, .005, pos.z); const sw = CFG.size*(.9 + h*.25)*grow; shadow.scale.set(sw, 1, sw);
+  shadow.material.opacity = clamp(.75 - h*.28, .12, .7);
+}
+
+/* ---------- Ciclo principale ---------- */
+function aimFeedback(){
+  let hover = null;
+  for (const c of controllers){
+    const u = c.userData; if (!u.connected){ u.dot.visible = false; continue; }
+    c.updateMatrixWorld(true);
+    rc.ray.origin.setFromMatrixPosition(c.matrixWorld); rc.ray.direction.set(0,0,-1).transformDirection(c.matrixWorld);
+    let d = 4, p = null;
+    if (mode === "playing" && S.spawned){
+      const h = rc.intersectObject(logo, false)[0]; if (h && validUv(h.uv)){ d = h.distance; p = h.point; }
+    } else if (mode === "over"){
+      const h = rc.intersectObject(endP.m, false)[0]; if (h){ d = h.distance; p = h.point; hover = btnAt(h.uv) || hover; }
+    }
+    u.line.scale.z = d; u.dot.visible = !!p; if (p){ u.dot.position.copy(p); u.dot.lookAt(head); }
+  }
+  if (mode === "over" && hover !== S.hover){ S.hover = hover; drawEnd(); }
+}
+function tick(dt, t, xrFrame){
+  const cam = screenMode ? camera : renderer.xr.getCamera();
+  if (screenMode) camera.updateMatrixWorld(true);
+  head.setFromMatrixPosition(cam.matrixWorld); cam.getWorldDirection(gaze);
+  fwd.copy(gaze); fwd.y = 0; if (fwd.lengthSq() < 1e-4) fwd.set(0,0,-1); fwd.normalize();
+  if (xrFrame){
+    const ref = renderer.xr.getReferenceSpace();
+    if (!S.poly.length && ref?.boundsGeometry?.length >= 3) S.poly = Array.from(ref.boundsGeometry, p => ({x:p.x, z:p.z}));
+    updatePlanes(xrFrame, ref);
+  }
+
+  if (mode === "countdown"){
+    if (!S.cdInit){ S.cdInit = true; bannerAt("3"); sfx.tick(); }
+    const prev = Math.ceil(S.cd); S.cd -= dt; const cur = Math.ceil(S.cd);
+    if (cur < prev && cur > 0){ bannerAt(String(cur)); sfx.tick(); }
+    if (S.cd <= 0){ bannerAt("VIA!", "#ffd36b"); sfx.go(); spawn(); mode = "playing"; }
+  }
+  if (mode === "playing"){
+    S.timeLeft -= dt;
+    S.badgeCd -= dt; if (S.badgeCd <= 0){ if (badges.filter(b => b.alive).length < 2) spawnBadge(); S.badgeCd = rand(5,8); }
+    if (S.timeLeft <= 0){ S.timeLeft = 0; endGame(); }
+  }
+  if (S.spawned && mode !== "countdown") moveLogo(dt, t);
+
+  for (const b of badges){
+    if (!b.alive) continue;
+    b.life -= dt; b.age += dt;
+    b.m.scale.setScalar(Math.max(.001, Math.min(1, b.age/.4)*Math.min(1, b.life/.5)));
+    b.m.position.y = b.y + Math.sin(t*2 + b.phase)*.05; b.m.lookAt(head);
+    if (b.life <= 0) killBadge(b);
+  }
+  aimFeedback();
+
+  // HUD: segue lo sguardo con un po' di ritardo, sempre leggibile
+  if (hud.m.visible){
+    const ty = Math.atan2(fwd.x, fwd.z);
+    if (!S.hudInit){ S.hudYaw = ty; S.hudInit = true; }
+    S.hudYaw += angDiff(S.hudYaw, ty)*(1 - Math.exp(-dt*2));
+    hud.m.position.set(head.x + Math.sin(S.hudYaw)*1.15, head.y - .4, head.z + Math.cos(S.hudYaw)*1.15);
+    hud.m.lookAt(head.x, hud.m.position.y, head.z); drawHud();
+  }
+  if (endP.m.visible) endP.m.lookAt(head.x, endP.m.position.y, head.z);
+
+  for (const p of popups){
+    if (p.life <= 0) continue; p.life -= dt; p.s.position.y += dt*.35; p.s.material.opacity = clamp(p.life/(p.max*.4), 0, 1);
+    if (p.life <= 0) p.s.visible = false;
+  }
+  for (const k of bolts){ if (k.life <= 0) continue; k.life -= dt; k.m.material.opacity = clamp(k.life/.14, 0, 1); if (k.life <= 0) k.m.visible = false; }
+  stepParticles(dt);
+}
+function render(time, xrFrame){
+  const t = time/1000; if (last === null) last = t;
+  const dt = Math.min(t - last, .05); last = t;
+  if (mode !== "idle" && (renderer.xr.isPresenting || screenMode)) tick(dt, t, xrFrame);
+  renderer.render(scene, camera);
+}
+
+/* ---------- Avvio ---------- */
+async function enterMR(){
+  unlockAudio();
+  try {
+    session = await navigator.xr.requestSession("immersive-ar", {optionalFeatures:["local-floor","bounded-floor","plane-detection","hit-test","anchors","hand-tracking"]});
+    await renderer.xr.setSession(session);
+  } catch (e){ session = null; setStatus("Impossibile avviare la MR: " + e.message); return; }
+  screenMode = false; scene.background = null; floor.visible = false;
+  startUI.classList.add("hidden");
+  session.addEventListener("end", leave, {once:true});
+  startGame();
+}
+function enterScreen(){
+  unlockAudio(); screenMode = true; scene.background = new THREE.Color(0x0b1020); floor.visible = true;
+  camera.position.set(0, 1.5, 0); look.yaw = 0; look.pitch = 0; camera.rotation.set(0, 0, 0);
+  startUI.classList.add("hidden"); startGame();
+}
+async function checkXR(){
+  if (!navigator.xr){ mrBtn.textContent = "Realtà mista non disponibile"; setStatus("Per la realtà mista apri la pagina nel browser del Meta Quest. Qui puoi giocare a schermo."); return; }
+  const ok = await navigator.xr.isSessionSupported("immersive-ar").catch(() => false);
+  mrBtn.disabled = !ok;
+  mrBtn.textContent = ok ? "Entra in realtà mista" : "Realtà mista non disponibile";
+  setStatus(ok ? "Pronto. Punta il logo col controller e premi il grilletto." : "Questo browser non espone immersive-ar: puoi giocare a schermo.");
+}
+document.querySelectorAll(".mode").forEach(b => b.addEventListener("click", () => selectMode(b.dataset.mode)));
+mrBtn.addEventListener("click", enterMR);
+screenBtn.addEventListener("click", enterScreen);
+init(); checkXR();
+</script>
+</body>
+</html>

@@ -1,0 +1,413 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>ISISS Matese — Logo Ninja MR</title>
+<link rel="icon" type="image/png" href="../../assets/img/isiss-logo.png">
+<style>
+:root{--ink:#f6f8ff;--muted:#aab5ca;--line:rgba(255,255,255,.14);--accent:#12d9ff;--accent2:#ff2d95}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;overflow:hidden;background:#050812;color:var(--ink);font-family:system-ui,-apple-system,"Segoe UI",sans-serif}
+#c{position:fixed;inset:0;width:100%;height:100%;touch-action:none}
+#trail{position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:20}
+.overlay{position:fixed;inset:0;z-index:30;background:rgba(3,6,14,.92);display:flex;align-items:center;justify-content:center;padding:20px;overflow:auto}
+.card{width:min(540px,100%);background:rgba(12,19,38,.96);border:1px solid var(--line);border-radius:28px;padding:30px;box-shadow:0 28px 100px rgba(0,0,0,.55)}
+.brand{display:flex;align-items:center;gap:14px;margin-bottom:16px}
+.brand img{width:60px;height:60px;object-fit:contain;border-radius:14px;background:#fff}
+.eyebrow{font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:#9faec7;font-weight:800}
+h1{font-size:clamp(30px,6vw,46px);line-height:1;margin:0 0 12px}
+p{color:var(--muted);line-height:1.55;margin:0 0 12px}
+.btn{width:100%;border:0;border-radius:15px;padding:15px;background:linear-gradient(100deg,var(--accent),#7a5cff 50%,var(--accent2));color:#07101d;font-size:16px;font-weight:900;cursor:pointer;margin-top:10px}
+.btn.ghost{background:rgba(255,255,255,.08);color:var(--ink);border:1px solid var(--line)}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.status{min-height:20px;margin-top:10px;color:var(--muted);font-size:13px}
+.hidden{display:none!important}
+.back{display:block;margin-top:12px;color:var(--accent);text-decoration:none;font-size:14px}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<canvas id="trail"></canvas>
+<div id="start" class="overlay"><div class="card">
+  <div class="brand"><img src="../../assets/img/isiss-logo.png" alt="Logo ISISS Matese"><div><div class="eyebrow">ISISS Matese</div><div>Mixed Reality Game</div></div></div>
+  <h1>Logo Ninja</h1>
+  <p>Impugna i controller come due spade e <b>taglia al volo</b> i badge <b>ITI</b>, <b>ITA</b> e <b>IPSEOA</b> che cadono dall'alto nella tua stanza. Il <b>logo ISISS</b> vale il triplo e regala 2 secondi. Con le tagliate di fila sale il combo, fino a x5.</p>
+  <p><b>Attenzione alle bombe:</b> se ne tagli una perdi 5 secondi e il combo. Hai 60 secondi. Fai spazio intorno a te!</p>
+  <button id="mrBtn" class="btn" disabled>Controllo WebXR…</button>
+  <button id="scrBtn" class="btn ghost">Gioca a schermo (telefono / PC: striscia il dito)</button>
+  <div id="status" class="status">Sto verificando il supporto del visore…</div>
+  <a class="back" href="../vr-space-blaster/index.html">🎯 Prova anche: Logo Blaster</a>
+  <a class="back" href="../vr-tiro-al-logo/index.html">🥫 Prova anche: Tiro al Logo</a>
+  <a class="back" href="../../vr.html">← Torna alla vetrina VR</a>
+</div></div>
+
+<script type="module">
+import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js";
+const V3 = THREE.Vector3, $ = s => document.querySelector(s);
+const canvas = $("#c"), trailCv = $("#trail"), tg = trailCv.getContext("2d");
+const startUI = $("#start"), mrBtn = $("#mrBtn"), scrBtn = $("#scrBtn"), statusEl = $("#status");
+const setStatus = t => statusEl.textContent = t;
+const rand = (a, b) => a + Math.random() * (b - a), lerp = (a, b, t) => a + (b - a) * t;
+
+const KEY = "isiss_logo_ninja_best";
+const G = 5.6, GF = 3.2, R = .17, BLADE = .9, MINV_XR = 1.4, MINV_SCR = 1.0, GAME_T = 60;
+let best = 0; try { best = +localStorage.getItem(KEY) || 0; } catch {}
+
+/* ---------- Scena ---------- */
+const renderer = new THREE.WebGLRenderer({canvas, antialias:true, alpha:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2)); renderer.setSize(innerWidth, innerHeight); renderer.xr.enabled = true;
+const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera(70, innerWidth/innerHeight, .05, 50);
+camera.position.set(0, 1.5, .6);
+const floor = new THREE.Mesh(new THREE.CircleGeometry(8, 32).rotateX(-Math.PI/2), new THREE.MeshBasicMaterial({color:0x151c30}));
+floor.visible = false; scene.add(floor);
+const arena = new THREE.Group(); scene.add(arena);   // tutto il gioco vive in coordinate locali (davanti = -z)
+
+/* ---------- Texture dei bersagli ---------- */
+function discTex(draw){
+  const c = document.createElement("canvas"); c.width = c.height = 256; const g = c.getContext("2d"); draw(g);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return {t, g};
+}
+function badgeTex(label, color, fs){
+  return discTex(g => {
+    g.beginPath(); g.arc(128, 128, 124, 0, 7); g.fillStyle = color; g.fill();
+    g.lineWidth = 12; g.strokeStyle = "#fff"; g.beginPath(); g.arc(128, 128, 108, 0, 7); g.stroke();
+    g.fillStyle = "#0b1020"; g.font = `900 ${fs}px system-ui,sans-serif`; g.textAlign = "center"; g.textBaseline = "middle"; g.fillText(label, 128, 134);
+  }).t;
+}
+const bombT = discTex(g => {
+  g.beginPath(); g.arc(128, 128, 124, 0, 7); g.fillStyle = "#1a0a12"; g.fill();
+  g.lineWidth = 16; g.strokeStyle = "#ff2d2d"; g.beginPath(); g.arc(128, 128, 106, 0, 7); g.stroke();
+  g.strokeStyle = "#ff4040"; g.lineWidth = 26; g.lineCap = "round";
+  g.beginPath(); g.moveTo(84, 84); g.lineTo(172, 172); g.moveTo(172, 84); g.lineTo(84, 172); g.stroke();
+}).t;
+const logoD = discTex(g => {
+  g.beginPath(); g.arc(128, 128, 124, 0, 7); g.fillStyle = "#0b1428"; g.fill();
+  g.lineWidth = 12; g.strokeStyle = "#12d9ff"; g.beginPath(); g.arc(128, 128, 108, 0, 7); g.stroke();
+});
+const logoImg = new Image();
+logoImg.onload = () => { logoD.g.drawImage(logoImg, 46, 46, 164, 164); logoD.t.needsUpdate = true; };
+logoImg.src = "../../assets/img/isiss-logo.png";
+
+const mk = t => new THREE.MeshBasicMaterial({map:t, transparent:true, side:THREE.DoubleSide});
+const KINDS = {
+  iti:    {mat:mk(badgeTex("ITI", "#ffb000", 110)),     pts:100, col:0xffb000},
+  ita:    {mat:mk(badgeTex("ITA", "#2ed573", 110)),     pts:100, col:0x2ed573},
+  ipseoa: {mat:mk(badgeTex("IPSEOA", "#ff2d95", 58)),   pts:100, col:0xff2d95},
+  logo:   {mat:mk(logoD.t),                              pts:300, col:0x12d9ff},
+  bomb:   {mat:mk(bombT),                                pts:0,   col:0xff3030}
+};
+for (const k of Object.values(KINDS)) k.pmat = new THREE.MeshBasicMaterial({color:k.col});
+const discGeo = new THREE.CircleGeometry(R, 28), partGeo = new THREE.SphereGeometry(.014, 6, 4);
+
+/* ---------- Pannelli 3D (HUD e tabellone) ---------- */
+function panel(w, h, pw, ph){
+  const c = document.createElement("canvas"); c.width = w; c.height = h;
+  const g = c.getContext("2d"), tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(pw, ph), new THREE.MeshBasicMaterial({map:tex, transparent:true}));
+  arena.add(m); return {g, tex, m, w, h, key:""};
+}
+function draw(p, lines, col){
+  const key = JSON.stringify(lines) + col; if (key === p.key) return; p.key = key;
+  const {g, w, h} = p; g.clearRect(0, 0, w, h); g.fillStyle = "rgba(8,14,30,.88)"; g.fillRect(0, 0, w, h);
+  g.strokeStyle = col; g.lineWidth = 8; g.strokeRect(4, 4, w-8, h-8); g.textAlign = "center"; g.textBaseline = "alphabetic";
+  let y = h*.05; for (const [t, s, c] of lines){ y += s*1.1; g.font = `800 ${s}px system-ui,sans-serif`; g.fillStyle = c || "#fff"; g.fillText(t, w/2, y); y += s*.22; }
+  p.tex.needsUpdate = true;
+}
+const hud = panel(512, 320, 1, .625), board = panel(640, 400, 1.4, .875);
+
+/* ---------- Audio / vibrazione ---------- */
+let ac; const unlock = () => { try { ac = ac || new (window.AudioContext || window.webkitAudioContext)(); ac.resume(); } catch {} };
+function beep(f, d = .1, type = "square", vol = .08){
+  if (!ac) return; const o = ac.createOscillator(), g = ac.createGain();
+  o.type = type; o.frequency.value = f; g.gain.value = vol; g.gain.exponentialRampToValueAtTime(.001, ac.currentTime + d);
+  o.connect(g); g.connect(ac.destination); o.start(); o.stop(ac.currentTime + d);
+}
+const buzz = (c, v, ms) => { try { c?.userData.src?.gamepad?.hapticActuators?.[0]?.pulse?.(v, ms); } catch {} };
+
+/* ---------- Stato di gioco ---------- */
+let mode = "idle";                 // idle | wait | count | play | over
+let screenMode = false, anchor = null;
+let score = 0, combo = 0, comboT = 0, timeLeft = GAME_T, countT = 0, spawnT = 0, overT = 0, clock = 0, lastSliceT = -9, newRec = false;
+const targets = [], debris = [], parts = [], pops = [];
+const mult = () => Math.min(5, 1 + Math.floor(Math.max(combo - 1, 0) / 4));
+
+function placeUI(){
+  if (screenMode){ hud.m.position.set(0, 2.75, -2.2); hud.m.rotation.y = 0; board.m.position.set(0, 1.6, -1.8); }
+  else { hud.m.position.set(-1.35, 1.5, -1.9); hud.m.rotation.y = .45; board.m.position.set(0, 1.45, -1.7); }
+  board.m.rotation.y = 0;
+}
+function placeArena(){
+  if (screenMode || !anchor){ arena.position.set(0, 0, 0); arena.rotation.y = 0; }
+  else { arena.position.set(anchor.x, 0, anchor.z); arena.rotation.y = Math.atan2(-anchor.fx, -anchor.fz); }
+  arena.updateMatrixWorld(true);
+}
+function clearField(){
+  for (const t of targets) arena.remove(t.g); targets.length = 0;
+  for (const d of debris){ arena.remove(d.m); d.geo.dispose(); } debris.length = 0;
+  for (const p of parts) arena.remove(p.m); parts.length = 0;
+  for (const p of pops){ arena.remove(p.s); p.s.material.map.dispose(); p.s.material.dispose(); } pops.length = 0;
+}
+function startGame(){
+  clearField(); score = 0; combo = 0; comboT = 0; timeLeft = GAME_T; newRec = false;
+  mode = (screenMode || anchor) ? "count" : "wait"; countT = 3.4; overT = 0;
+}
+function over(){
+  mode = "over"; overT = 0; combo = 0;
+  if (score > best){ best = score; newRec = true; try { localStorage.setItem(KEY, String(best)); } catch {} }
+  beep(newRec ? 880 : 300, .5, "triangle");
+}
+
+/* ---------- Bersagli ---------- */
+function pick(p){
+  const r = Math.random(), bombP = .08 + .12*p;
+  if (r < bombP) return "bomb";
+  if (r < bombP + .08) return "logo";
+  return ["iti", "ita", "ipseoa"][Math.floor(Math.random()*3)];
+}
+function launch(kind, p = 0){
+  const g = new THREE.Group(); g.add(new THREE.Mesh(discGeo, KINDS[kind].mat));
+  const x = rand(-1, 1), z = rand(-1.9, -1.4), y0 = rand(2.8, 3.2);   // partono in alto, sopra la testa
+  g.position.set(x, y0, z); arena.add(g);
+  targets.push({g, kind, v:new V3(-x*.3 + rand(-.25, .25), -rand(0, 1 + 1.5*p), rand(-.1, .1)), w:rand(-2, 2), rot:0, age:0});
+}
+function spawnWave(){
+  const p = 1 - timeLeft/GAME_T;
+  let n = 1 + (Math.random() < .25 + .4*p ? 1 : 0) + (p > .5 && Math.random() < .2 ? 1 : 0);
+  while (n--) launch(pick(p), p);
+  spawnT = lerp(1.1, .55, p) * rand(.8, 1.2);
+}
+
+/* ---------- Effetti ---------- */
+function popup(text, pos, col, size = 64){
+  const c = document.createElement("canvas"); c.width = 256; c.height = 96; const g = c.getContext("2d");
+  g.font = `900 ${size}px system-ui,sans-serif`; g.textAlign = "center"; g.textBaseline = "middle";
+  g.lineWidth = 8; g.strokeStyle = "#0b1020"; g.strokeText(text, 128, 50); g.fillStyle = col; g.fillText(text, 128, 50);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({map:t, transparent:true, depthTest:false}));
+  s.scale.set(.55, .206, 1); s.position.copy(pos); s.renderOrder = 10; arena.add(s); pops.push({s, life:.9});
+}
+function burst(p, kind){
+  for (let i = 0; i < 12; i++){
+    const m = new THREE.Mesh(partGeo, KINDS[kind].pmat); m.position.copy(p); arena.add(m);
+    parts.push({m, v:new V3(rand(-1, 1), rand(-.3, 1.4), rand(-1, 1)).multiplyScalar(1.6), life:.5});
+  }
+}
+function halves(t, p, theta){
+  const phi = theta - t.rot;
+  for (const s of [1, -1]){
+    const geo = new THREE.CircleGeometry(R, 20, s > 0 ? phi : phi + Math.PI, Math.PI);
+    const m = new THREE.Mesh(geo, KINDS[t.kind].mat); m.position.copy(p); m.rotation.z = t.rot; arena.add(m);
+    const n = new V3(-Math.sin(theta), Math.cos(theta), 0).multiplyScalar(s*1.1);
+    debris.push({m, geo, v:t.v.clone().multiplyScalar(.5).add(n), w:rand(-4, 4), life:1.1});
+  }
+}
+
+/* ---------- Taglio ---------- */
+const _ab = new V3(), _ap = new V3(), _c = new V3();
+function segDist(p, a, b){
+  _ab.subVectors(b, a); _ap.subVectors(p, a);
+  const l2 = _ab.lengthSq(); let t = l2 > 1e-8 ? _ap.dot(_ab)/l2 : 0; t = Math.max(0, Math.min(1, t));
+  _c.copy(a).addScaledVector(_ab, t); return p.distanceTo(_c);
+}
+function slice(t, dir, ctl){
+  const i = targets.indexOf(t); if (i < 0) return; targets.splice(i, 1);
+  const p = t.g.position.clone(); arena.remove(t.g);
+  const theta = (Math.abs(dir.x) + Math.abs(dir.y) > 1e-4) ? Math.atan2(dir.y, dir.x) : rand(0, 3.14);
+  halves(t, p, theta); burst(p, t.kind);
+  if (t.kind === "bomb"){
+    timeLeft = Math.max(0, timeLeft - 5); combo = 0;
+    popup("-5 s", p, "#ff4040", 78); beep(110, .45, "sawtooth", .12); buzz(ctl, 1, 250);
+    return;
+  }
+  combo++; comboT = 1.8;
+  const m = mult(); let pts = KINDS[t.kind].pts * m;
+  if (clock - lastSliceT < .12){ pts += 50; popup("DOPPIO!", p.clone().add(new V3(0, .22, 0)), "#ffe14d", 56); }
+  lastSliceT = clock; score += pts;
+  if (t.kind === "logo"){ timeLeft += 2; popup("+2 s", p.clone().add(new V3(0, .22, 0)), "#12d9ff", 60); }
+  popup("+" + pts, p, m > 1 ? "#ffe14d" : "#ffffff");
+  beep(480 + Math.min(combo, 12)*55, .09, "triangle", .1); buzz(ctl, .6, 45);
+}
+
+/* ---------- Spade (controller) ---------- */
+const ctls = [], N = 12;
+function makeRibbon(color){
+  const geo = new THREE.BufferGeometry(), pos = new Float32Array(N*2*3), col = new Float32Array(N*2*3);
+  const pa = new THREE.BufferAttribute(pos, 3); pa.setUsage(THREE.DynamicDrawUsage);
+  geo.setAttribute("position", pa); geo.setAttribute("color", new THREE.BufferAttribute(col, 3));
+  const idx = []; for (let i = 0; i < N-1; i++){ const a = i*2; idx.push(a, a+1, a+2, a+1, a+3, a+2); } geo.setIndex(idx);
+  const c = new THREE.Color(color);
+  for (let i = 0; i < N; i++){ const f = Math.pow(1 - i/(N-1), 2)*.9; for (const k of [0, 1]){ const o = (i*2+k)*3; col[o] = c.r*f; col[o+1] = c.g*f; col[o+2] = c.b*f; } }
+  const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({vertexColors:true, blending:THREE.AdditiveBlending, transparent:true, depthWrite:false, side:THREE.DoubleSide}));
+  m.frustumCulled = false; m.visible = false; scene.add(m);
+  return {m, pos, pa, hist:[]};
+}
+for (let i = 0; i < 2; i++){
+  const color = i === 0 ? 0x12d9ff : 0xff2d95;
+  const c = renderer.xr.getController(i); c.userData = {st:{has:false}, ribbon:makeRibbon(color)};
+  const blade = new THREE.Group();
+  blade.add(new THREE.Mesh(new THREE.CylinderGeometry(.012, .008, BLADE, 8).translate(0, BLADE/2 + .04, 0).rotateX(-Math.PI/2), new THREE.MeshBasicMaterial({color:0xffffff})));
+  blade.add(new THREE.Mesh(new THREE.CylinderGeometry(.03, .02, BLADE, 8).translate(0, BLADE/2 + .04, 0).rotateX(-Math.PI/2),
+    new THREE.MeshBasicMaterial({color, transparent:true, opacity:.28, blending:THREE.AdditiveBlending, depthWrite:false})));
+  blade.visible = false; c.add(blade); c.userData.blade = blade;
+  c.addEventListener("connected", e => { c.userData.src = e.data; blade.visible = true; });
+  c.addEventListener("disconnected", () => { c.userData.src = null; blade.visible = false; c.userData.ribbon.m.visible = false; c.userData.st.has = false; c.userData.ribbon.hist.length = 0; });
+  c.addEventListener("selectstart", () => { unlock(); if (mode === "over" && overT > 1) startGame(); });
+  scene.add(c); ctls.push(c);
+}
+function updateBlade(c, dt){
+  const rb = c.userData.ribbon, st = c.userData.st;
+  if (!c.userData.src){ rb.m.visible = false; return; }
+  c.updateMatrixWorld(true); arena.updateMatrixWorld(true);
+  const tipW = new V3(0, 0, -BLADE).applyMatrix4(c.matrixWorld), midW = new V3(0, 0, -.45).applyMatrix4(c.matrixWorld);
+  const tip = arena.worldToLocal(tipW.clone()), mid = arena.worldToLocal(midW.clone()), base = arena.worldToLocal(new V3(0, 0, -.15).applyMatrix4(c.matrixWorld));
+  if (!st.has){ st.pTip = tip.clone(); st.pMid = mid.clone(); st.has = true; }
+  const speed = tip.distanceTo(st.pTip)/Math.max(dt, .001);
+  if (mode === "play" && speed > MINV_XR){
+    for (const t of targets.slice()){
+      const p = t.g.position;
+      const d = Math.min(segDist(p, base, tip), segDist(p, st.pTip, tip), segDist(p, st.pMid, mid));
+      if (d < R + .07) slice(t, tip.clone().sub(st.pTip), c);
+    }
+  }
+  st.pTip.copy(tip); st.pMid.copy(mid);
+  rb.hist.unshift([tipW, midW]); if (rb.hist.length > N) rb.hist.pop();
+  for (let i = 0; i < N; i++){
+    const h = rb.hist[Math.min(i, rb.hist.length-1)], o = i*6;
+    rb.pos[o] = h[0].x; rb.pos[o+1] = h[0].y; rb.pos[o+2] = h[0].z; rb.pos[o+3] = h[1].x; rb.pos[o+4] = h[1].y; rb.pos[o+5] = h[1].z;
+  }
+  rb.pa.needsUpdate = true; rb.m.visible = mode !== "idle";
+}
+
+/* ---------- Schermo (telefono / PC) ---------- */
+const ray = new THREE.Raycaster();
+function planePoint(x, y, z){
+  ray.setFromCamera(new THREE.Vector2(x/innerWidth*2 - 1, -(y/innerHeight)*2 + 1), camera);
+  const o = ray.ray.origin, d = ray.ray.direction, s = (z - o.z)/d.z; return new V3(o.x + d.x*s, o.y + d.y*s, z);
+}
+let ptr = null, tpts = [];
+canvas.addEventListener("pointerdown", e => {
+  if (!screenMode) return; unlock();
+  if (mode === "over"){ if (overT > .8) startGame(); return; }
+  ptr = {x:e.clientX, y:e.clientY, t:performance.now()}; tpts = [{x:e.clientX, y:e.clientY, t:ptr.t}];
+  try { canvas.setPointerCapture(e.pointerId); } catch {}
+});
+canvas.addEventListener("pointermove", e => {
+  if (!screenMode || !ptr) return;
+  const now = performance.now(), dt = (now - ptr.t)/1000; if (dt <= 0) return;
+  tpts.push({x:e.clientX, y:e.clientY, t:now});
+  if (mode === "play"){
+    for (const t of targets.slice()){
+      const z = t.g.position.z, a = planePoint(ptr.x, ptr.y, z), b = planePoint(e.clientX, e.clientY, z);
+      if (a.distanceTo(b)/dt < MINV_SCR) continue;
+      if (segDist(t.g.position, a, b) < R + .1) slice(t, b.clone().sub(a), null);
+    }
+  }
+  ptr.x = e.clientX; ptr.y = e.clientY; ptr.t = now;
+});
+const endPtr = () => { ptr = null; };
+canvas.addEventListener("pointerup", endPtr); canvas.addEventListener("pointercancel", endPtr);
+function drawTrail(){
+  tg.clearRect(0, 0, trailCv.width, trailCv.height);
+  if (!screenMode) return;
+  const now = performance.now(); tpts = tpts.filter(p => now - p.t < 260);
+  tg.lineCap = "round";
+  for (let i = 1; i < tpts.length; i++){
+    const k = 1 - (now - tpts[i].t)/260;
+    tg.strokeStyle = `rgba(18,217,255,${k})`; tg.lineWidth = 2 + 10*k;
+    tg.beginPath(); tg.moveTo(tpts[i-1].x, tpts[i-1].y); tg.lineTo(tpts[i].x, tpts[i].y); tg.stroke();
+  }
+}
+function onResize(){
+  camera.aspect = innerWidth/innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight);
+  trailCv.width = innerWidth; trailCv.height = innerHeight;
+}
+addEventListener("resize", onResize); onResize();
+
+/* ---------- Aggiornamento ---------- */
+function ui(){
+  hud.m.visible = mode === "play"; board.m.visible = mode === "count" || mode === "over" || mode === "wait";
+  if (mode === "play"){
+    draw(hud, [["LOGO NINJA", 30, "#12d9ff"], [`Tempo ${Math.ceil(timeLeft)}`, 46, timeLeft <= 10 ? "#ff4040" : "#fff"],
+               [`Punti ${score}`, 50], [combo > 1 ? `Combo x${mult()}  (${combo})` : " ", 30, "#ffe14d"], [`Record ${best}`, 24, "#aab5ca"]], "#12d9ff");
+  } else if (mode === "count"){
+    const n = Math.ceil(countT - .4);
+    draw(board, [["LOGO NINJA", 40, "#12d9ff"], [n > 0 ? String(n) : "VIA!", 150, "#ffe14d"], [screenMode ? "Striscia il dito sui badge" : "Impugna i controller", 32, "#aab5ca"]], "#12d9ff");
+  } else if (mode === "over"){
+    draw(board, [["TEMPO SCADUTO!", 44, "#ff2d95"], [`Punti ${score}`, 72], [newRec ? "NUOVO RECORD!" : `Record ${best}`, 38, "#12d9ff"],
+                 [screenMode ? "Tocca per rigiocare" : "Premi il grilletto per rigiocare", 30, "#aab5ca"]], "#ff2d95");
+  } else if (mode === "wait"){
+    draw(board, [["LOGO NINJA", 44, "#12d9ff"], ["Guarda avanti…", 36, "#aab5ca"]], "#12d9ff");
+  }
+}
+function tick(dt){
+  overT += dt; clock += dt;
+  if (mode === "count"){ countT -= dt; if (countT <= 0){ mode = "play"; timeLeft = GAME_T; spawnT = .4; combo = 0; } }
+  if (mode === "play"){
+    timeLeft -= dt; comboT -= dt; if (comboT <= 0 && combo > 0) combo = 0;
+    spawnT -= dt; if (spawnT <= 0) spawnWave();
+    if (timeLeft <= 0) over();
+  }
+  if (!screenMode) for (const c of ctls) updateBlade(c, dt);
+  for (let i = targets.length-1; i >= 0; i--){
+    const t = targets[i], p = t.g.position; t.age += dt; t.v.y -= GF*dt; p.addScaledVector(t.v, dt);
+    t.rot += t.w*dt; t.g.rotation.z = t.rot; if (t.kind === "bomb") t.g.scale.setScalar(1 + .07*Math.sin(t.age*12));
+    if (t.age > .3 && p.y < .05 && t.v.y < 0){ arena.remove(t.g); targets.splice(i, 1); }
+  }
+  for (let i = debris.length-1; i >= 0; i--){
+    const d = debris[i]; d.life -= dt; d.v.y -= G*dt; d.m.position.addScaledVector(d.v, dt); d.m.rotation.z += d.w*dt;
+    d.m.scale.setScalar(Math.min(1, d.life/.3));
+    if (d.life <= 0){ arena.remove(d.m); d.geo.dispose(); debris.splice(i, 1); }
+  }
+  for (let i = parts.length-1; i >= 0; i--){
+    const p = parts[i]; p.life -= dt; p.v.y -= G*.6*dt; p.m.position.addScaledVector(p.v, dt); p.m.scale.setScalar(Math.max(p.life/.5, .01));
+    if (p.life <= 0){ arena.remove(p.m); parts.splice(i, 1); }
+  }
+  for (let i = pops.length-1; i >= 0; i--){
+    const p = pops[i]; p.life -= dt; p.s.position.y += .5*dt; p.s.material.opacity = Math.min(1, p.life/.4);
+    if (p.life <= 0){ arena.remove(p.s); p.s.material.map.dispose(); p.s.material.dispose(); pops.splice(i, 1); }
+  }
+  ui();
+}
+
+/* ---------- Loop e avvio ---------- */
+let last = null;
+renderer.setAnimationLoop(time => {
+  const t = time/1000; if (last === null) last = t; const dt = Math.min(t - last, .05); last = t;
+  if (renderer.xr.isPresenting && !anchor && mode === "wait"){
+    const cam = renderer.xr.getCamera(), p = cam.getWorldPosition(new V3()), f = cam.getWorldDirection(new V3()); f.y = 0;
+    if (p.y > .3 && f.lengthSq() > .01){ f.normalize(); anchor = {x:p.x, z:p.z, fx:f.x, fz:f.z}; placeArena(); mode = "count"; countT = 3.4; }
+  }
+  if (mode !== "idle" && (screenMode || anchor)) tick(dt);
+  renderer.render(scene, camera);
+  drawTrail();
+});
+async function enterMR(){
+  unlock();
+  try {
+    const s = await navigator.xr.requestSession("immersive-ar", {optionalFeatures:["local-floor", "bounded-floor"]});
+    await renderer.xr.setSession(s);
+    s.addEventListener("end", () => {
+      mode = "idle"; anchor = null; clearField(); for (const c of ctls){ c.userData.ribbon.m.visible = false; c.userData.st.has = false; c.userData.ribbon.hist.length = 0; }
+      hud.m.visible = board.m.visible = false; startUI.classList.remove("hidden");
+    }, {once:true});
+  } catch (e){ setStatus("Impossibile avviare la MR: " + e.message); return; }
+  screenMode = false; anchor = null; scene.background = null; floor.visible = false;
+  placeArena(); placeUI(); startUI.classList.add("hidden"); startGame();
+}
+function enterScreen(){
+  unlock(); screenMode = true; scene.background = new THREE.Color(0x0b1020); floor.visible = true;
+  camera.position.set(0, 1.5, .6); placeArena(); placeUI(); startUI.classList.add("hidden"); startGame();
+}
+async function checkXR(){
+  if (!navigator.xr){ mrBtn.textContent = "Realtà mista non disponibile"; setStatus("Per la realtà mista apri la pagina nel browser del Meta Quest. Qui puoi giocare a schermo."); return; }
+  const ok = await navigator.xr.isSessionSupported("immersive-ar").catch(() => false);
+  mrBtn.disabled = !ok; mrBtn.textContent = ok ? "Entra in realtà mista" : "Realtà mista non disponibile";
+  setStatus(ok ? "Pronto. Mettiti in piedi con spazio libero intorno e guarda avanti prima di entrare." : "Questo browser non espone immersive-ar: puoi giocare a schermo.");
+}
+mrBtn.addEventListener("click", enterMR); scrBtn.addEventListener("click", enterScreen);
+hud.m.visible = board.m.visible = false;
+checkXR();
+</script>
+</body>
+</html>

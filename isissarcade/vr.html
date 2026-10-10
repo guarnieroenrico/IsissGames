@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ISISS ARCADE VR — Giochi in realtà mista</title>
+  <meta name="description" content="Vetrina VR dell'ISISS Arcade: giochi in realtà mista per Meta Quest.">
+  <meta name="theme-color" content="#08111f">
+  <link rel="icon" type="image/png" href="assets/img/isiss-logo.png">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="assets/css/style.css">
+</head>
+<body class="vr-page">
+
+  <!-- Sfondo statico: niente video, per tenere leggero il browser del visore. -->
+  <div class="site-background" aria-hidden="true">
+    <canvas class="matrix-rain" id="matrixRain"></canvas>
+    <div class="bg-dark-overlay"></div>
+    <div class="background-glow background-glow-one"></div>
+    <div class="background-glow background-glow-two"></div>
+  </div>
+
+  <header class="vr-header">
+    <a href="index.html?pc" class="vr-brand" aria-label="Torna alla vetrina ISISS Arcade">
+      <span class="vr-logo"><img src="assets/img/isiss-logo.png" alt="Logo ISISS Matese"></span>
+      <span>
+        <small>ISISS MATESE</small>
+        <strong>Arcade VR</strong>
+      </span>
+    </a>
+    <span class="device-badge" id="deviceBadge">Per giocare apri da Meta Quest</span>
+  </header>
+
+  <main class="vr-main">
+    <section class="vr-hero">
+      <div class="vr-hero-copy">
+        <span class="section-kicker"><span class="terminal-dot"></span> SISTEMA VR // REALTÀ MISTA</span>
+        <h1>Entra nel<br><span>codice.</span></h1>
+        <p>
+          La tua stanza diventa il campo di gioco. Attiva il visore, scegli una
+          simulazione e porta l'esperienza digitale nel mondo reale.
+        </p>
+        <div class="vr-hero-meta"><span>01 / SELEZIONA</span><span>02 / INDOSSA IL VISORE</span><span>03 / GIOCA</span></div>
+      </div>
+      <div class="vr-terminal" aria-label="Decorazione in stile terminale informatico">
+        <div class="terminal-bar"><span class="terminal-lights"><i></i><i></i><i></i></span><span>isiss_vr://console</span><span>v1.0</span></div>
+        <div class="terminal-code"><div><span class="code-muted">// inizializzazione ambiente</span></div><div><span class="code-purple">const</span> <span class="code-blue">experience</span> = <span class="code-green">"realtà mista"</span>;</div><div><span class="code-purple">if</span> (headset.<span class="code-blue">connected</span>) {</div><div class="code-indent"><span class="code-green">launch</span>(<span class="code-green">"your-world.exe"</span>);</div><div class="code-indent">world.<span class="code-blue">mode</span> = <span class="code-green">"immersive"</span>;</div><div>}</div><div class="terminal-status"><span class="pulse-dot"></span> SYSTEM READY <span class="terminal-status-right">AWAITING PLAYER_</span></div></div>
+      </div>
+    </section>
+
+    <section class="vr-grid" id="vrGrid" aria-label="Giochi VR"></section>
+  </main>
+
+  <footer class="vr-footer">
+    
+  </footer>
+
+  <script src="assets/js/matrix-rain.js"></script>
+  <script src="assets/js/games-data.js"></script>
+  <script src="assets/js/vr.js"></script>
+</body>
+</html>
