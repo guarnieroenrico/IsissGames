@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ISISS ARCADE VR — Giochi in realtà mista</title>
+  <meta name="description" content="Vetrina VR dell'ISISS Arcade: giochi in realtà mista per Meta Quest.">
+  <meta name="theme-color" content="#08111f">
+  <link rel="icon" type="image/png" href="assets/img/isiss-logo.png">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="assets/css/style.css">
+</head>
+<body class="vr-page">
+
+  <!-- Sfondo statico: niente video, per tenere leggero il browser del visore. -->
+  <div class="site-background" aria-hidden="true">
+    <div class="bg-dark-overlay"></div>
+    <div class="background-glow background-glow-one"></div>
+    <div class="background-glow background-glow-two"></div>
+  </div>
+
+  <header class="vr-header">
+    <a href="index.html?pc" class="vr-brand" aria-label="Torna alla vetrina ISISS Arcade">
+      <span class="vr-logo"><img src="assets/img/isiss-logo.png" alt="Logo ISISS Matese"></span>
+      <span>
+        <small>ISISS MATESE</small>
+        <strong>Arcade VR</strong>
+      </span>
+    </a>
+    <span class="device-badge" id="deviceBadge">Per giocare apri da Meta Quest</span>
+  </header>
+
+  <main class="vr-main">
+    <section class="vr-hero">
+      <span class="section-kicker">🥽 Realtà mista</span>
+      <h1>Giochi nella<br><span>tua stanza.</span></h1>
+      <p>
+        Indossa il visore: i giochi compaiono nello spazio intorno a te.
+        Punta il controller su un gioco e premi il grilletto per iniziare.
+        Prima di partire, libera un po' di spazio davanti a te.
+      </p>
+    </section>
+
+    <section class="vr-grid" id="vrGrid" aria-label="Giochi VR"></section>
+  </main>
+
+  <footer class="vr-footer">
+    <a href="index.html?pc" class="nav-btn">← Torna alla vetrina dei giochi per telefono e PC</a>
+  </footer>
+
+  <script src="assets/js/games-data.js"></script>
+  <script src="assets/js/vr.js"></script>
+</body>
+</html>
