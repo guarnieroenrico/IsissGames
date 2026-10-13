@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>ISISS ARCADE VR — Vetrina in realtà aumentata</title>
+<meta name="description" content="Vetrina AR dell'ISISS Arcade: i giochi in realtà mista per Meta Quest ti girano attorno nella stanza.">
+<meta name="theme-color" content="#050a14">
+<link rel="icon" type="image/png" href="assets/img/isiss-logo.png">
+<link rel="manifest" href="manifest.webmanifest">
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;overflow:hidden;background:#050a14;color:#e8fff0;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+#c{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+/* Tutta la schermata è il pulsante: un solo grilletto/tocco e si entra in AR */
+#enter{position:fixed;inset:0;z-index:10;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;padding:24px;text-align:center;cursor:pointer;
+  background:radial-gradient(ellipse at 50% 40%,rgba(10,40,24,.78),rgba(3,7,12,.93) 70%);-webkit-tap-highlight-color:transparent}
+#enter.hidden{display:none}
+#enter img{width:96px;height:96px;object-fit:contain;border-radius:20px;background:#fff;padding:6px;box-shadow:0 0 40px rgba(82,255,145,.35)}
+#enter small{letter-spacing:.3em;color:#6cbf88;font-size:12px}
+#enter h1{margin:0;font-size:clamp(34px,7vw,64px);letter-spacing:-.04em;color:#52ff91;text-shadow:0 0 28px rgba(82,255,145,.5)}
+#go{margin-top:6px;padding:20px 44px;border-radius:12px;border:1px solid #52ff91;background:rgba(82,255,145,.12);color:#52ff91;font:800 clamp(16px,3vw,24px) ui-monospace,Menlo,monospace;letter-spacing:.08em;animation:pulse 1.6s ease-in-out infinite}
+#note{max-width:560px;color:#8fb59d;font-size:14px;line-height:1.5;min-height:42px}
+.links{display:flex;gap:22px;font-size:13px}
+.links a{color:#6cbf88;text-decoration:none;border-bottom:1px dotted #3c7a52}
+@keyframes pulse{50%{box-shadow:0 0 34px rgba(82,255,145,.45);background:rgba(82,255,145,.2)}}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div id="enter">
+  <img src="assets/img/isiss-logo.png" alt="Logo ISISS Matese">
+  <small>ISISS MATESE // ARCADE VR</small>
+  <h1>Entra nel codice.</h1>
+  <div id="go">Controllo del visore…</div>
+  <div id="note"></div>
+  <div class="links">
+    <a href="vr-lista.html">Lista giochi classica</a>
+    <a href="index.html?pc">Giochi per telefono / PC</a>
+  </div>
+</div>
+
+<!-- Catalogo giochi: stessa fonte di prima (VR_GAMES) -->
+<script src="assets/js/games-data.js"></script>
+<script type="module">
+import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js";
+
+const $ = s => document.querySelector(s);
+const canvas = $("#c"), enterEl = $("#enter"), goEl = $("#go"), noteEl = $("#note");
+const GAMES = (typeof VR_GAMES !== "undefined" && VR_GAMES.length) ? VR_GAMES : [];
+const GREEN = 0x52ff91;
+const rand = (a, b) => a + Math.random() * (b - a);
+const easeOutBack = t => { const c1 = 1.70158, c3 = c1 + 1; return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2); };
+
+/* ---------- Renderer / scena ---------- */
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.xr.enabled = true;
+renderer.xr.setReferenceSpaceType("local-floor");
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.05, 60);
+camera.position.set(0, 1.5, 0);
+let inXR = false;
+renderer.setClearColor(0x050a14, 1);   // anteprima: sfondo scuro. In AR diventa trasparente (passthrough)
+
+addEventListener("resize", () => {
+  camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+/* ---------- Audio ---------- */
+let actx = null;
+function beep(freq, dur, type = "sine", vol = 0.12, slideTo) {
+  try {
+    actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+    const t = actx.currentTime, o = actx.createOscillator(), g = actx.createGain();
+    o.type = type; o.frequency.setValueAtTime(freq, t);
+    if (slideTo) o.frequency.exponentialRampToValueAtTime(slideTo, t + dur);
+    g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g); g.connect(actx.destination); o.start(t); o.stop(t + dur);
+  } catch {}
+}
+
+/* ---------- Texture ---------- */
+function canvasTex(w, h, draw) {
+  const c = document.createElement("canvas"); c.width = w; c.height = h;
+  const g = c.getContext("2d"); draw(g, w, h);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
+  return { tex: t, ctx: g, canvas: c };
+}
+function roundRect(g, x, y, w, h, r) {
+  g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r);
+  g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath();
+}
+function wrap(g, text, x, y, maxW, lh, maxLines = 6) {
+  const words = text.split(" "); let line = "", n = 0;
+  for (const w of words) {
+    const test = line ? line + " " + w : w;
+    if (g.measureText(test).width > maxW && line) { g.fillText(line, x, y); y += lh; line = w; if (++n >= maxLines) return y; }
+    else line = test;
+  }
+  g.fillText(line, x, y); return y + lh;
+}
+const logoImg = new Image(); logoImg.src = "assets/img/isiss-logo.png";
+const cardRedraws = [];
+logoImg.onload = () => cardRedraws.forEach(f => f());
+
+const CW = 640, CH = 880;
+function makeCardTexture(game) {
+  const accent = game.accentColor || "#52ff91";
+  const paint = (g) => {
+    g.clearRect(0, 0, CW, CH);
+    // pannello
+    const grd = g.createLinearGradient(0, 0, 0, CH);
+    grd.addColorStop(0, "#0d1c30"); grd.addColorStop(1, "#050a14");
+    roundRect(g, 14, 14, CW - 28, CH - 28, 44); g.fillStyle = grd; g.fill();
+    g.shadowColor = accent; g.shadowBlur = 26; g.lineWidth = 7; g.strokeStyle = accent; g.stroke(); g.shadowBlur = 0;
+    // griglia leggera
+    g.save(); roundRect(g, 14, 14, CW - 28, CH - 28, 44); g.clip();
+    g.strokeStyle = "rgba(255,255,255,.04)"; g.lineWidth = 2;
+    for (let x = 40; x < CW; x += 40) { g.beginPath(); g.moveTo(x, 0); g.lineTo(x, CH); g.stroke(); }
+    for (let y = 40; y < CH; y += 40) { g.beginPath(); g.moveTo(0, y); g.lineTo(CW, y); g.stroke(); }
+    g.restore();
+    // kicker
+    g.fillStyle = accent; g.font = "700 26px ui-monospace,Menlo,monospace"; g.textBaseline = "alphabetic";
+    g.fillText("ISISS ARCADE // MR", 54, 78);
+    // logo
+    roundRect(g, 54, 108, 130, 130, 26); g.fillStyle = "#fff"; g.fill();
+    if (logoImg.complete && logoImg.naturalWidth) g.drawImage(logoImg, 64, 118, 110, 110);
+    // icona emoji
+    g.font = "110px system-ui,'Segoe UI Emoji','Noto Color Emoji',sans-serif"; g.textAlign = "right";
+    g.fillStyle = "#fff"; g.fillText((game.icon || "🎮").slice(0, 2), CW - 54, 215); g.textAlign = "left";
+    // titolo
+    g.fillStyle = "#f4fff8"; g.font = "800 62px system-ui,'Segoe UI',sans-serif";
+    let y = wrap(g, game.title, 54, 330, CW - 108, 70, 2);
+    // descrizione
+    g.fillStyle = "#a9c3b3"; g.font = "500 31px system-ui,'Segoe UI',sans-serif";
+    y = wrap(g, game.tagline || "", 54, y + 14, CW - 108, 42, 6);
+    // dettaglio
+    if (game.detail) {
+      g.font = "700 25px ui-monospace,Menlo,monospace";
+      const tw = g.measureText(game.detail).width + 36;
+      roundRect(g, 54, CH - 250, Math.min(tw, CW - 108), 52, 12);
+      g.fillStyle = "rgba(255,255,255,.07)"; g.fill();
+      g.fillStyle = accent; g.fillText(game.detail, 72, CH - 214);
+    }
+    // pulsante
+    const bg = g.createLinearGradient(54, 0, CW - 54, 0); bg.addColorStop(0, accent); bg.addColorStop(1, "#ffffff");
+    roundRect(g, 54, CH - 170, CW - 108, 96, 24); g.fillStyle = bg; g.fill();
+    g.fillStyle = "#04101a"; g.font = "900 38px system-ui,'Segoe UI',sans-serif"; g.textAlign = "center";
+    g.fillText("AVVIA IL GIOCO  →", CW / 2, CH - 108); g.textAlign = "left";
+  };
+  const t = canvasTex(CW, CH, paint);
+  cardRedraws.push(() => { paint(t.ctx); t.tex.needsUpdate = true; });
+  return t.tex;
+}
+const glowTex = canvasTex(256, 256, (g) => {
+  const r = g.createRadialGradient(128, 128, 0, 128, 128, 128);
+  r.addColorStop(0, "rgba(255,255,255,1)"); r.addColorStop(.35, "rgba(255,255,255,.35)"); r.addColorStop(1, "rgba(255,255,255,0)");
+  g.fillStyle = r; g.fillRect(0, 0, 256, 256);
+}).tex;
+function glyphTex(txt) {
+  return canvasTex(128, 128, (g) => {
+    g.shadowColor = "#52ff91"; g.shadowBlur = 18; g.fillStyle = "#7dffae";
+    g.font = "800 54px ui-monospace,Menlo,monospace"; g.textAlign = "center"; g.textBaseline = "middle";
+    g.fillText(txt, 64, 68);
+  }).tex;
+}
+
+/* ---------- Carosello di card ---------- */
+const center = new THREE.Group(); scene.add(center);          // origine della vetrina (dove sta il giocatore)
+const ring = new THREE.Group(); center.add(ring);
+const CARD_W = 0.78, CARD_H = CARD_W * CH / CW;
+const N = GAMES.length;
+const R = Math.max(1.6, N * 0.42);
+const cards = GAMES.map((game, i) => {
+  const g = new THREE.Group();
+  const a = (i / N) * Math.PI * 2;
+  g.position.set(Math.sin(a) * R, 0, -Math.cos(a) * R);
+  g.rotation.y = -a;
+  const accent = new THREE.Color(game.accentColor || "#52ff91");
+  const glow = new THREE.Mesh(new THREE.PlaneGeometry(CARD_W * 2.1, CARD_H * 1.7),
+    new THREE.MeshBasicMaterial({ map: glowTex, color: accent, transparent: true, opacity: .45, blending: THREE.AdditiveBlending, depthWrite: false }));
+  glow.position.z = -0.03;
+  const mat = new THREE.MeshBasicMaterial({ map: makeCardTexture(game), transparent: true, toneMapped: false });
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(CARD_W, CARD_H), mat);
+  const back = new THREE.Mesh(new THREE.PlaneGeometry(CARD_W, CARD_H), new THREE.MeshBasicMaterial({ color: 0x07101c, side: THREE.BackSide, transparent: true, opacity: .85 }));
+  back.position.z = -0.002;
+  g.add(glow, mesh, back);
+  mesh.userData.card = g;
+  ring.add(g);
+  return { group: g, mesh, mat, glow, game, accent, a, scale: 0, hover: 0, flash: 0, phase: rand(0, 6.28) };
+});
+const pickables = cards.map(c => c.mesh);
+
+/* ---------- Decorazioni che ti passano vicino ---------- */
+const GLYPHS = ["</>", "{ }", "01", "JS", "AR", "XR", "#", "=>", "ISISS", "[ ]", "&&", "3D"];
+const glyphTextures = GLYPHS.map(glyphTex);
+const orbiters = [];
+for (let i = 0; i < 26; i++) {
+  const isLogo = i % 5 === 0;
+  const mat = new THREE.SpriteMaterial(isLogo
+    ? { map: new THREE.TextureLoader().load("assets/img/isiss-logo.png"), transparent: true, depthWrite: false }
+    : { map: glyphTextures[i % glyphTextures.length], transparent: true, blending: THREE.AdditiveBlending, depthWrite: false });
+  if (isLogo) mat.map.colorSpace = THREE.SRGBColorSpace;
+  const s = new THREE.Sprite(mat);
+  const size = isLogo ? rand(.12, .2) : rand(.14, .3);
+  s.scale.set(size, size, 1);
+  center.add(s);
+  orbiters.push({ s, r: rand(0.9, R + 1.4), a: rand(0, 6.28), sp: rand(.12, .5) * (Math.random() < .5 ? -1 : 1), y: rand(.3, 2.6), bob: rand(0, 6.28), size });
+}
+
+/* Particelle */
+const PN = 380, ppos = new Float32Array(PN * 3);
+for (let i = 0; i < PN; i++) { ppos[i * 3] = rand(-4, 4); ppos[i * 3 + 1] = rand(0, 3.5); ppos[i * 3 + 2] = rand(-4, 4); }
+const pgeo = new THREE.BufferGeometry(); pgeo.setAttribute("position", new THREE.BufferAttribute(ppos, 3));
+const particles = new THREE.Points(pgeo, new THREE.PointsMaterial({ map: glowTex, color: GREEN, size: .07, transparent: true, opacity: .75, blending: THREE.AdditiveBlending, depthWrite: false }));
+center.add(particles);
+
+/* Anelli sul pavimento, sotto i piedi */
+const floorRings = [1.0, R, R + .9].map((r, i) => {
+  const m = new THREE.Mesh(new THREE.RingGeometry(r - 0.012, r + 0.012, 96).rotateX(-Math.PI / 2),
+    new THREE.MeshBasicMaterial({ color: GREEN, transparent: true, opacity: .45, blending: THREE.AdditiveBlending, depthWrite: false }));
+  m.position.y = 0.01; center.add(m); return m;
+});
+const floorGlow = new THREE.Mesh(new THREE.CircleGeometry(R + .9, 64).rotateX(-Math.PI / 2),
+  new THREE.MeshBasicMaterial({ map: glowTex, color: GREEN, transparent: true, opacity: .16, blending: THREE.AdditiveBlending, depthWrite: false }));
+floorGlow.position.y = 0.005; center.add(floorGlow);
+
+/* ---------- Controller ---------- */
+const raycaster = new THREE.Raycaster();
+const controllers = [0, 1].map(i => {
+  const c = renderer.xr.getController(i);
+  const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3(0, 0, -1)]),
+    new THREE.LineBasicMaterial({ color: GREEN, transparent: true, opacity: .8 }));
+  line.scale.z = 3;
+  const dot = new THREE.Mesh(new THREE.SphereGeometry(.012, 12, 12), new THREE.MeshBasicMaterial({ color: 0xffffff }));
+  dot.visible = false; scene.add(dot);
+  c.add(line); scene.add(c);
+  const st = { c, line, dot, hit: null };
+  c.addEventListener("selectstart", () => { if (st.hit) choose(st.hit); });
+  c.visible = false;
+  c.addEventListener("connected", () => { c.visible = true; });
+  c.addEventListener("disconnected", () => { c.visible = false; });
+  return st;
+});
+
+/* ---------- Interazione ---------- */
+let chosen = false, rot = 0, rotVel = 0, hoveredAny = null, t0 = 0;
+function choose(card) {
+  if (chosen) return; chosen = true;
+  card.flash = 1; beep(520, .15, "square", .1, 1040); setTimeout(() => beep(1040, .25, "sine", .12, 1560), 120);
+  setTimeout(() => { location.href = card.game.path; }, 450);
+}
+function placeCenter() {
+  // al momento dell'ingresso: vetrina attorno al giocatore, prima card davanti a lui
+  const p = new THREE.Vector3(), d = new THREE.Vector3();
+  camera.getWorldPosition(p); camera.getWorldDirection(d);
+  center.position.set(p.x, 0, p.z);
+  const yaw = Math.atan2(-d.x, -d.z);                 // direzione dello sguardo
+  center.rotation.y = yaw;
+  ring.position.y = Math.max(1.15, p.y - 0.12);
+  rot = 0;
+}
+
+/* anteprima da PC / telefono: trascina per girare, clic per scegliere */
+const mouse = new THREE.Vector2(); let drag = null, moved = 0;
+canvas.addEventListener("pointerdown", e => { drag = e.clientX; moved = 0; });
+canvas.addEventListener("pointermove", e => {
+  mouse.set(e.clientX / innerWidth * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
+  if (drag !== null) { const dx = e.clientX - drag; drag = e.clientX; moved += Math.abs(dx); rot += dx * 0.006; rotVel = 0; }
+});
+canvas.addEventListener("pointerup", () => {
+  if (moved < 6 && hoveredAny && !inXR) choose(hoveredAny);
+  drag = null;
+});
+addEventListener("keydown", e => { if (e.key === "ArrowLeft") rotVel += 1.2; if (e.key === "ArrowRight") rotVel -= 1.2; });
+
+/* ---------- Loop ---------- */
+const tmp = new THREE.Vector3(), q = new THREE.Quaternion();
+let frames = 0, last = performance.now();
+function frame(now) {
+  const dt = Math.min(.05, (now - last) / 1000); last = now; t0 += dt; frames++;
+  if (inXR && frames === 4 && !placed) { placeCenter(); placed = true; t0 = 0; }
+
+  // hover (controller in XR, mouse in anteprima)
+  hoveredAny = null;
+  if (inXR) {
+    controllers.forEach(st => {
+      st.hit = null; st.dot.visible = false; st.line.scale.z = 3;
+      if (!st.c.visible) return;
+      raycaster.setFromXRController(st.c);
+      const h = raycaster.intersectObjects(pickables, false)[0];
+      if (h) {
+        const card = cards.find(c => c.mesh === h.object);
+        st.hit = card; st.line.scale.z = h.distance; st.dot.position.copy(h.point); st.dot.visible = true;
+        if (!card.wasHover) { try { const gp = st.c.userData.gamepad || (renderer.xr.getSession().inputSources.find(s => s.targetRaySpace && s.gamepad) || {}).gamepad; gp && gp.hapticActuators && gp.hapticActuators[0].pulse(.35, 30); } catch {} beep(880, .05, "sine", .05); }
+        hoveredAny = hoveredAny || card;
+      }
+    });
+    // stick: ruota la vetrina
+    try {
+      renderer.xr.getSession().inputSources.forEach(s => {
+        const a = s.gamepad && s.gamepad.axes;
+        if (a && a.length >= 4 && Math.abs(a[2]) > .2) rotVel += -a[2] * 2.6 * dt;
+      });
+    } catch {}
+  } else if (!drag) {
+    raycaster.setFromCamera(mouse, camera);
+    const h = raycaster.intersectObjects(pickables, false)[0];
+    if (h) hoveredAny = cards.find(c => c.mesh === h.object);
+  }
+  cards.forEach(c => { c.wasHover = (hoveredAny === c) || controllers.some(st => st.hit === c); });
+
+  // rotazione: lenta da sola, ferma quando punti una card
+  const auto = hoveredAny || chosen ? 0 : 0.22;
+  rot += (auto + rotVel) * dt; rotVel *= Math.pow(.04, dt);
+  ring.rotation.y = rot;
+
+  // card
+  cards.forEach((c, i) => {
+    const appear = Math.min(1, Math.max(0, (t0 - i * .25) / .9));
+    const target = c.wasHover ? 1.1 : 1;
+    c.hover += ((c.wasHover ? 1 : 0) - c.hover) * Math.min(1, dt * 9);
+    c.flash = Math.max(0, c.flash - dt * 2.2);
+    const e = appear > 0 ? easeOutBack(appear) : 0;
+    const s = Math.max(.001, e * (1 + c.hover * .1 + c.flash * .25));
+    c.group.scale.setScalar(s);
+    c.group.position.y = Math.sin(t0 * 1.3 + c.phase) * .035 + c.hover * .03;
+    c.mat.color.setScalar(.8 + c.hover * .2 + c.flash * .2);
+    c.glow.material.opacity = .32 + c.hover * .45 + c.flash * .4 + Math.sin(t0 * 2 + c.phase) * .05;
+  });
+
+  // decorazioni
+  orbiters.forEach(o => {
+    o.a += o.sp * dt;
+    o.s.position.set(Math.sin(o.a) * o.r, ring.position.y - 1.2 + o.y + Math.sin(t0 + o.bob) * .08, -Math.cos(o.a) * o.r);
+    o.s.material.opacity = Math.min(1, t0 / 1.2);
+  });
+  const pp = pgeo.attributes.position;
+  for (let i = 0; i < PN; i++) { let y = pp.getY(i) + dt * (.12 + (i % 7) * .02); if (y > 3.6) y = 0; pp.setY(i, y); }
+  pp.needsUpdate = true;
+  floorRings.forEach((m, i) => { m.material.opacity = .25 + .25 * Math.sin(t0 * 1.6 - i * 1.1); m.scale.setScalar(1 + .02 * Math.sin(t0 * 1.6 - i)); });
+
+  if (!inXR) {                                          // anteprima: telecamera fissa leggermente in movimento
+    center.position.set(0, 0, 0); center.rotation.y = 0; ring.position.y = 1.5;
+    camera.position.set(Math.sin(t0 * .25) * .06, 1.5, 0); camera.rotation.set(0, 0, 0);
+  }
+  renderer.render(scene, camera);
+}
+let placed = false;
+renderer.setAnimationLoop(frame);
+
+/* ---------- Ingresso in AR ---------- */
+let xrOK = false;
+async function startAR() {
+  const session = await navigator.xr.requestSession("immersive-ar", { optionalFeatures: ["local-floor", "bounded-floor", "hand-tracking"] });
+  session.addEventListener("end", () => {
+    inXR = false; placed = false; chosen = false; renderer.setClearColor(0x050a14, 1); enterEl.classList.remove("hidden");
+  });
+  await renderer.xr.setSession(session);
+  inXR = true; placed = false; frames = 0; t0 = 0;
+  renderer.setClearColor(0x000000, 0);                  // passthrough: la stanza si vede dietro alle card
+  enterEl.classList.add("hidden");
+}
+async function onEnter() {
+  beep(1, .01, "sine", .0001);
+  if (!xrOK) { enterEl.classList.add("hidden"); return; }      // anteprima 3D sullo schermo
+  try { await startAR(); }
+  catch (e) { noteEl.textContent = "Non riesco ad avviare l'AR: " + (e && e.message || e); enterEl.classList.remove("hidden"); }
+}
+enterEl.addEventListener("click", e => { if (e.target.closest("a")) return; onEnter(); });
+enterEl.querySelectorAll("a").forEach(a => a.addEventListener("click", e => e.stopPropagation()));
+
+(async () => {
+  if (!navigator.xr || !navigator.xr.isSessionSupported) {
+    goEl.textContent = "▶ ANTEPRIMA 3D";
+    noteEl.textContent = "Questo browser non supporta la realtà aumentata. Apri la pagina dal browser del Meta Quest: qui vedi solo l'anteprima (trascina per girare la vetrina).";
+    return;
+  }
+  try { xrOK = await navigator.xr.isSessionSupported("immersive-ar"); } catch {}
+  if (!xrOK) {
+    goEl.textContent = "▶ ANTEPRIMA 3D";
+    noteEl.textContent = "AR non disponibile qui. Apri la pagina dal browser del Meta Quest (con il passthrough attivo): qui vedi l'anteprima.";
+    return;
+  }
+  goEl.textContent = "🥽 PREMI IL GRILLETTO PER ENTRARE IN AR";
+  noteEl.textContent = "Libera un po' di spazio attorno a te. Punta una card e premi il grilletto per avviare il gioco; la levetta fa girare la vetrina.";
+  // Se la pagina è un'app installata (PWA) il Quest permette di entrare subito, senza nessun tocco.
+  if ("getDigitalGoodsService" in window) onEnter();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ISISS Matese 3D Runner AR — ISISS Arcade VR</title>
+  <link rel="icon" type="image/png" href="../../assets/img/isiss-logo.png">
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;700;800&family=Space+Grotesk:wght@600;700&display=swap" rel="stylesheet">
+  <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
+  <script src="../../assets/js/ar-common.js"></script>
+  <script>
+Arc.initOverlay({
+  title: 'ISISS Matese 3D Runner',
+  subtitle: 'Una pista luminosa sul pavimento della tua stanza. Gli ostacoli vengono verso di te!',
+  howto: [
+    '<b>Spostati</b> a sinistra/destra per cambiare corsia (oppure usa la leva del controller).',
+    '<b>Salta</b> sulle barriere basse (oppure pulsante A / X).',
+    '<b>Abbassati</b> sotto le sbarre alte (oppure leva in giù).',
+    'Raccogli i <b>gettoni dorati</b>. Hai 3 vite. Trigger per ricominciare.',
+    'Servono circa 2 m di spazio libero davanti a te. A / X = riposiziona la pista.'
+  ]
+});
+
+AFRAME.registerComponent('runner-game', {
+  init() {
+    const THREE = AFRAME.THREE, self = this;
+    this.LANES = [-0.7, 0, 0.7]; this.SPAWN_Z = -9; this.running = false;
+    this.root = new THREE.Group(); this.el.setObject3D('game', this.root);
+    this.obstacles = []; this.coins = [];
+    this.logoTex = new THREE.TextureLoader().load('../../assets/img/isiss-logo.png');
+    this.mat = {
+      lane: new THREE.MeshBasicMaterial({ color: 0x00d4ff, transparent: true, opacity: 0.18 }),
+      line: new THREE.MeshBasicMaterial({ color: 0x66e8ff, transparent: true, opacity: 0.8 }),
+      low: new THREE.MeshStandardMaterial({ color: 0xff8a00, emissive: 0xaa4400 }),
+      high: new THREE.MeshStandardMaterial({ color: 0xff007f, emissive: 0x660033 }),
+      wall: new THREE.MeshStandardMaterial({ color: 0x22c55e, emissive: 0x0a4a22 }),
+      coin: new THREE.MeshStandardMaterial({ color: 0xffd400, emissive: 0x886600, metalness: 0.6, roughness: 0.3 })
+    };
+    // pista
+    this.LANES.forEach(x => { const m = new THREE.Mesh(new THREE.PlaneGeometry(0.62, 10), this.mat.lane); m.rotation.x = -Math.PI / 2; m.position.set(x, 0.003, -4.5); this.root.add(m); });
+    [-1.05, -0.35, 0.35, 1.05].forEach(x => { const m = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.01, 10), this.mat.line); m.position.set(x, 0.006, -4.5); this.root.add(m); });
+    this.dashes = []; for (let i = 0; i < 10; i++) { const d = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.01, 0.3), this.mat.line); d.position.set(0, 0.008, -i); this.dashes.push(d); this.root.add(d); }
+    this.hudEl = document.getElementById('hud'); this.msgEl = document.getElementById('msg');
+
+    Arc.onStart(() => { self.base = null; self.calib = 0; self.reset(); self.running = true; });
+    Arc.onRecenter(() => { self.base = null; self.calib = 0; });
+    Arc.onTrigger(() => { if (self.over) self.reset(); });
+    // tastiera per l'anteprima 2D
+    window.addEventListener('keydown', e => {
+      if (e.key === 'ArrowLeft') self.stickLane = Math.max(0, (self.stickLane ?? self.bodyLane) - 1);
+      if (e.key === 'ArrowRight') self.stickLane = Math.min(2, (self.stickLane ?? self.bodyLane) + 1);
+      if (e.key === 'ArrowUp' || e.key === ' ') self.jump();
+      if (e.key === 'ArrowDown') self.duck();
+      if (e.key === 'Enter' && self.over) self.reset();
+    });
+    this.stickEdge = { x: 0, y: 0 };
+    ['abuttondown', 'xbuttondown'].forEach(ev => this.el.sceneEl.addEventListener(ev, () => self.jump()));
+    ['left', 'right'].forEach(h => document.getElementById(h === 'left' ? 'lc' : 'rc').addEventListener('thumbstickmoved', e => self.stick(e.detail)));
+  },
+
+  stick(d) {
+    const e = this.stickEdge;
+    if (d.x > 0.7 && e.x <= 0.7) this.stickLane = Math.min(2, (this.stickLane ?? this.bodyLane) + 1);
+    if (d.x < -0.7 && e.x >= -0.7) this.stickLane = Math.max(0, (this.stickLane ?? this.bodyLane) - 1);
+    if (d.y < -0.7 && e.y >= -0.7) this.jump();       // leva in avanti = salto
+    if (d.y > 0.7 && e.y <= 0.7) this.duck();         // leva indietro = abbassati
+    e.x = d.x; e.y = d.y;
+  },
+  jump() { if (this.jumpT <= 0) { this.jumpT = 0.7; Arc.beep(400, 0.15, 'square', 0.12, 800); } },
+  duck() { this.duckT = 0.8; },
+
+  reset() {
+    this.obstacles.concat(this.coins).forEach(o => this.root.remove(o.mesh)); this.obstacles = []; this.coins = [];
+    this.speed = 2.4; this.dist = 0; this.score = 0; this.lives = 3; this.invuln = 0; this.over = false;
+    this.nextSpawn = 2.0; this.jumpT = 0; this.duckT = 0; this.stickLane = null; this.bodyLane = 1; this.lane = 1; this.tokens = 0;
+    this.msgEl.setAttribute('value', ''); this.hud();
+  },
+
+  hud() { this.hudEl.setAttribute('value', `VITE ${'* '.repeat(Math.max(0, this.lives)).trim()}   PUNTI ${Math.floor(this.score)}   GETTONI ${this.tokens}`); },
+
+  spawn() {
+    const THREE = AFRAME.THREE, m = this.mat, r = Math.random(), z = this.SPAWN_Z;
+    const add = (lane, kind) => {
+      const g = new THREE.Group(); let h = 0.4;
+      if (kind === 'low') { const b = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.32, 0.14), m.low); b.position.y = 0.16; g.add(b); }
+      if (kind === 'high') {
+        [-0.3, 0.3].forEach(x => { const p = new THREE.Mesh(new THREE.BoxGeometry(0.05, 1.15, 0.05), m.high); p.position.set(x, 0.575, 0); g.add(p); });
+        const bar = new THREE.Mesh(new THREE.BoxGeometry(0.66, 0.16, 0.08), m.high); bar.position.y = 1.07; g.add(bar); h = 1.0;
+      }
+      if (kind === 'wall') {
+        const b = new THREE.Mesh(new THREE.BoxGeometry(0.6, 1.7, 0.2), m.wall); b.position.y = 0.85; g.add(b);
+        const l = new THREE.Mesh(new THREE.PlaneGeometry(0.5, 0.5), new THREE.MeshBasicMaterial({ map: this.logoTex, transparent: true })); l.position.set(0, 1.0, 0.105); g.add(l);
+      }
+      g.position.set(this.LANES[lane], 0, z); Arc.cast(g); this.root.add(g);
+      this.obstacles.push({ mesh: g, lane, kind, z, hit: false });
+    };
+    if (r < 0.28) { for (let l = 0; l < 3; l++) add(l, 'low'); }
+    else if (r < 0.5) { for (let l = 0; l < 3; l++) add(l, 'high'); }
+    else { const free = Math.floor(Math.random() * 3); for (let l = 0; l < 3; l++) if (l !== free) add(l, 'wall'); }
+    // gettoni nella corsia libera / casuale
+    const cl = Math.floor(Math.random() * 3);
+    for (let i = 0; i < 4; i++) {
+      const c = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 0.03, 20), m.coin); c.rotation.x = Math.PI / 2;
+      const g = new THREE.Group(); g.add(c); g.position.set(this.LANES[cl], 0.9, z - 1.0 - i * 0.45); Arc.cast(g); this.root.add(g);
+      this.coins.push({ mesh: g, lane: cl, z: g.position.z, got: false });
+    }
+  },
+
+  tick(time, dtms) {
+    if (!this.running) return;
+    const dt = Math.min(dtms / 1000, 0.05), THREE = AFRAME.THREE; if (dt <= 0) return;
+    // testa del giocatore
+    const head = Arc.inXR ? Arc.headLocal() : new THREE.Vector3(0, 1.6, 0);
+    if (this.base == null) { this.calib = (this.calib || 0) + dt; this.base = head.y; }
+    if (this.calib < 1.0) { this.calib += dt; this.base = Math.max(this.base, head.y); if (this.calib < 1.0) { this.msgEl.setAttribute('value', 'Mettiti dritto...'); return; } this.msgEl.setAttribute('value', ''); }
+    if (head.y > this.base) this.base = head.y; else this.base += (head.y - this.base) * 0.05 * dt;
+    if (Arc.inXR) {
+      const bl = head.x < -0.35 ? 0 : head.x > 0.35 ? 2 : 1;
+      if (bl !== this.bodyLane) { this.bodyLane = bl; this.stickLane = null; }
+      if (head.y - this.base > 0.09 && this.jumpT <= 0) this.jump();
+      if (head.y < this.base * 0.78) this.duckT = Math.max(this.duckT, 0.3);
+    }
+    this.lane = this.stickLane ?? this.bodyLane;
+    this.jumpT = Math.max(0, this.jumpT - dt); this.duckT = Math.max(0, this.duckT - dt); this.invuln = Math.max(0, this.invuln - dt);
+
+    if (this.over) return;
+    this.speed = Math.min(5.5, this.speed + dt * 0.03 * 3); this.dist += this.speed * dt; this.score += this.speed * dt * 2;
+    this.nextSpawn -= this.speed * dt; if (this.nextSpawn <= 0) { this.spawn(); this.nextSpawn = 3.2 + Math.random() * 1.8 - (this.speed - 2.4) * 0.3; }
+    this.dashes.forEach(d => { d.position.z += this.speed * dt; if (d.position.z > 1) d.position.z -= 10; });
+
+    const airborne = this.jumpT > 0.12, ducking = this.duckT > 0;
+    for (const o of this.obstacles) {
+      o.z += this.speed * dt; o.mesh.position.z = o.z;
+      if (!o.hit && o.lane === this.lane && o.z > -0.22 && o.z < 0.22) {
+        const dodged = (o.kind === 'low' && airborne) || (o.kind === 'high' && ducking);
+        if (!dodged && this.invuln <= 0) {
+          o.hit = true; this.lives--; this.invuln = 1.2; Arc.beep(120, 0.35, 'sawtooth', 0.25, 50); Arc.haptic('right', 1, 200); Arc.haptic('left', 1, 200);
+          this.msgEl.setAttribute('value', 'OUCH!'); setTimeout(() => { if (!this.over) this.msgEl.setAttribute('value', ''); }, 700);
+          if (this.lives <= 0) this.end();
+        }
+      }
+    }
+    for (const c of this.coins) {
+      c.z += this.speed * dt; c.mesh.position.z = c.z; c.mesh.rotation.y += dt * 4;
+      if (!c.got && c.lane === this.lane && Math.abs(c.z) < 0.3 && !(this.jumpT > 0.12 && false)) { c.got = true; c.mesh.visible = false; this.tokens++; this.score += 25; Arc.beep(900, 0.08, 'sine', 0.12, 1400); Arc.haptic('right', 0.4, 30); }
+    }
+    const gone = o => o.z > 1.6 || o.got;
+    [this.obstacles, this.coins].forEach((arr, i) => { for (let k = arr.length - 1; k >= 0; k--) if (gone(arr[k])) { this.root.remove(arr[k].mesh); arr.splice(k, 1); } });
+    this.hud();
+  },
+
+  end() {
+    this.over = true; Arc.beep(300, 0.6, 'sawtooth', 0.25, 60);
+    const rec = Math.max(this.score, parseInt(localStorage.getItem('isiss_vr_runner_best') || '0', 10)); try { localStorage.setItem('isiss_vr_runner_best', Math.floor(rec)); } catch (e) {}
+    this.msgEl.setAttribute('value', `GAME OVER\nPunti ${Math.floor(this.score)}  ·  Record ${Math.floor(rec)}\nTrigger per ricominciare`);
+  }
+});
+  </script>
+</head>
+<body>
+<a-scene webxr="referenceSpaceType: local-floor; optionalFeatures: hit-test"
+         xr-mode-ui="enabled: false" background="transparent: true" renderer="alpha: true; antialias: true"
+         cursor="rayOrigin: mouse" raycaster="objects: .clickable" loading-screen="enabled: false">
+  <a-entity id="rig">
+    <a-entity id="cam" camera look-controls="touchEnabled: false" position="0 1.6 0"></a-entity>
+    <a-entity id="lc" laser-controls="hand: left" raycaster="far: 8; objects: .clickable"></a-entity>
+    <a-entity id="rc" laser-controls="hand: right" raycaster="far: 8; objects: .clickable"></a-entity>
+  </a-entity>
+  <a-entity arc-world id="world">
+    <a-entity light="type: ambient; intensity: 0.9; color: #ffffff"></a-entity>
+    <a-entity light="type: directional; intensity: 0.7; castShadow: true; shadowCameraTop: 6; shadowCameraBottom: -6; shadowCameraLeft: -4; shadowCameraRight: 4; shadowMapWidth: 1024; shadowMapHeight: 1024" position="1 5 1"></a-entity>
+    <a-plane rotation="-90 0 0" width="14" height="14" material="shader: shadow; opacity: 0.4" shadow="receive: true"></a-plane>
+    <a-plane class="preview-only" rotation="-90 0 0" position="0 -0.01 0" width="14" height="14" material="color: #10203a"></a-plane>
+    <a-text id="hud" value="" align="center" width="2.4" color="#ffffff" position="0 1.95 -3"></a-text>
+    <a-text id="msg" value="" align="center" width="3" color="#ffd400" position="0 1.5 -2"></a-text>
+    <a-entity runner-game></a-entity>
+  </a-entity>
+</a-scene>
+</body>
+</html>

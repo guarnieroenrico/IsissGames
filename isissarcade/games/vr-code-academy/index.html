@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Code Academy AR — ISISS Arcade VR</title>
+  <link rel="icon" type="image/png" href="../../assets/img/isiss-logo.png">
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;700;800&family=Space+Grotesk:wght@600;700&display=swap" rel="stylesheet">
+  <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
+  <script src="../../assets/js/ar-common.js"></script>
+  <script src="levels.js"></script>
+  <script>
+Arc.initOverlay({
+  title: 'Code Academy',
+  subtitle: 'Il quiz del Professore, su un pannello che fluttua nella tua stanza.',
+  howto: [
+    '<b>Punta</b> il laser del controller sul pulsante e premi il <b>trigger</b>.',
+    '23 livelli: scelta multipla, trova il bug, rimetti in ordine, scrivi la risposta con la tastiera virtuale.',
+    'Il pulsante <b>INDIZIO</b> ti aiuta. Rispondi giusto al primo colpo per più stelle.',
+    'A / X = riposiziona il pannello davanti a te.'
+  ]
+});
+
+AFRAME.registerComponent('academy-game', {
+  init() {
+    const self = this;
+    this.root = this.el; this.idx = 0; this.running = false;
+    try { this.stars = parseInt(localStorage.getItem('isiss_vr_code_stars') || '0', 10) || 0; } catch (e) { this.stars = 0; }
+    this.panel = document.createElement('a-entity'); this.panel.setAttribute('position', '0 1.4 -1.4'); this.el.appendChild(this.panel);
+    const bg = this.mk('a-plane', { width: 1.9, height: 1.3, material: 'color: #0c1830; opacity: 0.96; shader: flat' }, this.panel);
+    this.mk('a-plane', { width: 1.92, height: 1.32, position: '0 0 -0.004', material: 'color: #22c55e; shader: flat' }, this.panel);
+    this.content = this.mk('a-entity', {}, this.panel);
+    Arc.onStart(() => { self.running = true; self.load(0); });
+  },
+
+  mk(tag, attrs, parent) {
+    const e = document.createElement(tag);
+    for (const k in attrs) e.setAttribute(k, attrs[k]);
+    (parent || this.content).appendChild(e); return e;
+  },
+  text(value, x, y, o) {
+    o = o || {};
+    return this.mk('a-text', { value, position: `${x} ${y} 0.01`, align: o.align || 'left', anchor: o.anchor || 'left', baseline: 'top', width: o.width || 1.7, wrapCount: o.wrap || 64, color: o.color || '#cfe0f8', font: o.font || 'roboto', 'line-height': o.lh || 60 });
+  },
+  btn(label, x, y, w, h, color, onClick, o) {
+    o = o || {};
+    const b = this.mk('a-plane', { width: w, height: h, position: `${x} ${y} 0.01`, material: `color: ${color}; shader: flat`, class: 'clickable' });
+    const t = this.mk('a-text', { value: label, align: 'center', anchor: 'center', baseline: 'center', width: o.tw || w * 1.9, wrapCount: o.wrap || 38, color: o.tc || '#ffffff', font: o.font || 'roboto', position: '0 0 0.01' }, b);
+    b.addEventListener('mouseenter', () => { if (!b._off) b.setAttribute('material', 'color', '#2f6bff'); });
+    b.addEventListener('mouseleave', () => { if (!b._off) b.setAttribute('material', 'color', b._c || color); });
+    b.addEventListener('click', () => { if (!b._off) { Arc.beep(700, 0.05, 'sine', 0.1); onClick(b, t); } });
+    b._c = color; b.setColor = c => { b._c = c; b.setAttribute('material', 'color', c); }; b.disable = () => { b._off = true; };
+    return b;
+  },
+  clear() { while (this.content.firstChild) this.content.removeChild(this.content.firstChild); },
+  shuffle(a) { a = a.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; },
+
+  load(i) {
+    this.idx = i; this.tries = 0; this.done = false; this.clear();
+    if (i >= CODE_LEVELS.length) return this.finish();
+    const L = this.L = CODE_LEVELS[i];
+    this.text(`LIVELLO ${i + 1}/${CODE_LEVELS.length}  ·  ${L.lang}  ·  ${L.title}`, -0.9, 0.6, { color: '#55c8ff', width: 1.8, wrap: 70 });
+    this.text(`STELLE ${this.stars}`, 0.9, 0.6, { align: 'right', anchor: 'right', color: '#ffd400', width: 0.5, wrap: 18 });
+    this.text(L.intro, -0.9, 0.5, { width: 1.8, wrap: 74 });
+    this.fb = this.text('', -0.9, -0.5, { width: 1.8, wrap: 74, color: '#9ff' });
+    this.hintBtn = this.btn('INDIZIO', -0.72, -0.6, 0.3, 0.07, '#a16207', () => this.say('Indizio: ' + L.hint, '#ffd400'), { tw: 0.5 });
+    this.btn('SALTA >', 0.72, -0.6, 0.3, 0.07, '#334155', () => this.load(i + 1), { tw: 0.5 });
+    ({ MULTIPLE_CHOICE: this.buildMC, BUG_HUNT: this.buildBug, ORDER_LINES: this.buildOrder, TYPE_ANSWER: this.buildType })[L.type].call(this, L);
+  },
+
+  say(t, c) { this.fb.setAttribute('value', t); this.fb.setAttribute('color', c || '#9ff'); },
+  code(lines) { return this.text(lines.join('\n'), -0.8, 0.28, { font: 'sourcecodepro', width: 1.6, wrap: 56, color: '#e6edf7', lh: 70 }); },
+
+  buildMC(L) {
+    this.code(L.code);
+    const opts = this.shuffle(L.options);
+    opts.forEach((o, k) => {
+      const x = k % 2 ? 0.45 : -0.45, y = -0.12 - Math.floor(k / 2) * 0.17;
+      this.btn(o.text, x, y, 0.85, 0.14, '#1e3a5f', b => this.answer(o.correct, b), { wrap: 30, font: 'sourcecodepro', tw: 1.5 });
+    });
+  },
+  buildBug(L) {
+    L.code.forEach((ln, k) => this.btn(ln, 0, 0.3 - k * 0.1, 1.7, 0.085, '#17263f', b => this.answer(k === L.bugLineIndex, b), { font: 'sourcecodepro', wrap: 62, tw: 1.6 }));
+    this.say('Tocca la riga che contiene l\'errore.');
+  },
+  buildOrder(L) {
+    const order = this.shuffle(L.code.map((t, k) => ({ t, k }))); this.picked = [];
+    order.forEach((o, n) => this.btn(o.t, 0, 0.3 - n * 0.1, 1.7, 0.085, '#17263f', b => {
+      b._off = true; b.setColor('#475569'); this.picked.push(o.k); this.say('Ordine scelto: ' + this.picked.map(x => x + 1).join(' → '));
+      if (this.picked.length === L.code.length) { const ok = this.picked.every((v, p) => v === p); this.answer(ok, null); }
+    }, { font: 'sourcecodepro', wrap: 62, tw: 1.6 }));
+    this.btn('ANNULLA', 0, -0.6, 0.3, 0.07, '#7f1d1d', () => this.load(this.idx), { tw: 0.5 });
+    this.say('Tocca le righe nell\'ordine corretto.');
+  },
+  buildType(L) {
+    this.typed = ''; const ph = '[ ??? ]';
+    const t = this.code(L.code); const upd = () => { t.setAttribute('value', L.code.join('\n').replace(ph, `[ ${this.typed}_ ]`)); };
+    upd();
+    const rows = ['qwertyuiop', 'asdfghjkl', 'zxcvbnm', '(*);_.='];
+    rows.forEach((r, ri) => [...r].forEach((ch, ci) => {
+      const x = (ci - (r.length - 1) / 2) * 0.16;
+      this.btn(ch, x, -0.1 - ri * 0.105, 0.14, 0.09, '#1e3a5f', () => { if (this.typed.length < 14) { this.typed += ch; upd(); } }, { tw: 0.3, font: 'sourcecodepro' });
+    }));
+    this.btn('<', 0.62, -0.1 - 3 * 0.105, 0.2, 0.09, '#7f1d1d', () => { this.typed = this.typed.slice(0, -1); upd(); }, { tw: 0.4 });
+    this.btn('OK', 0.84, -0.1 - 3 * 0.105, 0.2, 0.09, '#15803d', b => this.answer(L.answers.map(a => a.toLowerCase()).includes(this.typed.trim().toLowerCase()), b), { tw: 0.4 });
+  },
+
+  answer(ok, b) {
+    if (this.done) return;
+    if (!ok) {
+      this.tries++; Arc.beep(150, 0.25, 'sawtooth', 0.15, 80); Arc.haptic('right', 0.6, 80);
+      if (b) b.setColor('#991b1b');
+      this.say('Non ancora! Riprova (puoi usare INDIZIO).', '#ff7b7b');
+      if (this.L.type === 'ORDER_LINES') setTimeout(() => this.load(this.idx), 900);
+      return;
+    }
+    this.done = true; if (b) b.setColor('#15803d');
+    const reward = this.tries === 0 ? 1 + 2 * (this.L.difficulty || 1) : 1; this.stars += reward;
+    try { localStorage.setItem('isiss_vr_code_stars', this.stars); } catch (e) {}
+    Arc.beep(520, 0.12, 'square', 0.15); setTimeout(() => Arc.beep(780, 0.2, 'square', 0.15), 120); Arc.haptic('right', 0.8, 80);
+    this.say(`${this.L.explanation}\n+${reward} stelle`, '#86efac');
+    this.btn('AVANTI >', 0, -0.6, 0.5, 0.09, '#22c55e', () => this.load(this.idx + 1), { tw: 0.8, tc: '#04101f' });
+  },
+
+  finish() {
+    this.clear();
+    this.text('COMPLIMENTI!', 0, 0.3, { align: 'center', anchor: 'center', width: 1.6, color: '#ffd400' });
+    this.text(`Hai completato tutti i ${CODE_LEVELS.length} livelli.\nStelle totali: ${this.stars}`, 0, 0.1, { align: 'center', anchor: 'center', width: 1.4, wrap: 40 });
+    this.btn('RICOMINCIA', 0, -0.2, 0.6, 0.12, '#22c55e', () => this.load(0), { tw: 1, tc: '#04101f' });
+  }
+});
+  </script>
+</head>
+<body>
+<a-scene webxr="referenceSpaceType: local-floor; optionalFeatures: hit-test"
+         xr-mode-ui="enabled: false" background="transparent: true" renderer="alpha: true; antialias: true"
+         cursor="rayOrigin: mouse" raycaster="objects: .clickable" loading-screen="enabled: false">
+  <a-entity id="rig">
+    <a-entity id="cam" camera look-controls="touchEnabled: false" position="0 1.6 0"></a-entity>
+    <a-entity id="lc" laser-controls="hand: left" raycaster="far: 6; objects: .clickable"></a-entity>
+    <a-entity id="rc" laser-controls="hand: right" raycaster="far: 6; objects: .clickable"></a-entity>
+  </a-entity>
+  <a-entity arc-world id="world">
+    <a-entity light="type: ambient; intensity: 1; color: #ffffff"></a-entity>
+    <a-plane class="preview-only" rotation="-90 0 0" position="0 -0.01 0" width="14" height="14" material="color: #0a0f24"></a-plane>
+    <a-entity academy-game></a-entity>
+  </a-entity>
+</a-scene>
+</body>
+</html>

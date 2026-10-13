@@ -1,0 +1,1332 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>ISISS MATESE Code Academy - Il Quiz del Professore</title>
+
+    <!-- External Libraries: Three.js, Tailwind CSS, FontAwesome -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;600;700&family=Inter:wght@400;600;800;900&display=swap" rel="stylesheet">
+
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #0f172a;
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            user-select: none;
+            -webkit-user-select: none;
+            touch-action: manipulation;
+        }
+
+        #canvas-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+        }
+
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 10;
+            pointer-events: none;
+        }
+
+        .pointer-events-auto {
+            pointer-events: auto;
+        }
+
+        input {
+            user-select: text;
+            -webkit-user-select: text;
+        }
+
+        .glass-panel {
+            background: rgba(15, 23, 42, 0.88);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+        }
+
+        .code-font {
+            font-family: 'Fira Code', monospace;
+        }
+
+        @keyframes pulse-border {
+            0%, 100% { border-color: rgba(34, 197, 94, 0.4); box-shadow: 0 0 15px rgba(34, 197, 94, 0.2); }
+            50% { border-color: rgba(34, 197, 94, 0.9); box-shadow: 0 0 30px rgba(34, 197, 94, 0.5); }
+        }
+
+        .glow-active {
+            animation: pulse-border 2s infinite;
+        }
+
+        @keyframes float-bubble {
+            0%, 100% { transform: translateY(0px); }
+            50% { transform: translateY(-6px); }
+        }
+
+        .prof-bubble {
+            animation: float-bubble 3s ease-in-out infinite;
+        }
+
+        /* Custom Scrollbar for level select */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: rgba(0, 0, 0, 0.2);
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- 3D Graphics Canvas Container -->
+    <div id="canvas-container"></div>
+
+    <!-- UI Overlay Layer -->
+    <div id="ui-layer" class="flex flex-col justify-between p-3 sm:p-5">
+        
+        <!-- Top Navigation HUD Bar -->
+        <div class="flex justify-between items-center w-full max-w-5xl mx-auto pointer-events-auto">
+            <!-- School Brand Header -->
+            <div class="glass-panel px-3 sm:px-4 py-2 rounded-2xl flex items-center gap-3 border border-white/20 shadow-xl">
+                <div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-green-500 via-emerald-400 to-cyan-400 flex items-center justify-center text-slate-900 font-black text-lg shadow">
+                    <i class="fa-solid fa-graduation-cap"></i>
+                </div>
+                <div>
+                    <h1 class="text-xs sm:text-sm font-black text-white tracking-wide uppercase">ISISS MATESE</h1>
+                    <p class="text-[10px] text-green-400 font-bold uppercase tracking-wider">Code Academy 3D</p>
+                </div>
+            </div>
+
+            <!-- Level Indicator & Score -->
+            <div class="flex items-center gap-2">
+                <div class="glass-panel text-white px-3 sm:px-4 py-2 rounded-2xl flex items-center gap-2 border border-white/20 shadow-xl">
+                    <i class="fa-solid fa-layer-group text-cyan-400 text-sm"></i>
+                    <span class="text-xs sm:text-sm font-bold text-gray-300">Livello:</span>
+                    <span id="hud-level" class="text-sm sm:text-lg font-black text-cyan-400">1/10</span>
+                </div>
+
+                <div class="glass-panel text-white px-3 sm:px-4 py-2 rounded-2xl flex items-center gap-2 border border-white/20 shadow-xl">
+                    <i class="fa-solid fa-star text-amber-400 text-sm"></i>
+                    <span id="hud-stars" class="text-sm sm:text-lg font-black text-amber-300">0</span>
+                </div>
+
+                <!-- Level Select Menu Button -->
+                <button id="btn-menu" class="glass-panel hover:bg-slate-800/80 active:scale-95 text-white p-2.5 rounded-2xl border border-white/20 shadow-xl transition-all">
+                    <i class="fa-solid fa-bars text-lg text-emerald-400"></i>
+                </button>
+            </div>
+        </div>
+
+        <!-- Main Center Area: Blackboard Code Puzzle Container -->
+        <div id="puzzle-screen" class="my-auto mx-auto w-full max-w-4xl pointer-events-auto flex flex-col gap-3 py-2">
+            
+            <!-- Professor Speech / Hint Banner -->
+            <div id="prof-dialogue" class="glass-panel prof-bubble p-3 sm:p-4 rounded-2xl border border-cyan-500/40 shadow-2xl flex items-center gap-3 bg-slate-900/90 max-w-2xl mx-auto w-full">
+                <div class="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-gradient-to-tr from-cyan-500 to-green-400 flex items-center justify-center text-slate-900 text-xl font-black shrink-0 border-2 border-white shadow">
+                    👨‍🏫
+                </div>
+                <div class="flex-1">
+                    <div class="text-[10px] font-bold uppercase tracking-wider text-cyan-400">Prof. Matese dice:</div>
+                    <p id="prof-text" class="text-xs sm:text-sm text-gray-100 font-semibold leading-relaxed">
+                        Benvenuti ragazzi! Guardiamo la lavagna e completiamo questo codice!
+                    </p>
+                </div>
+                <button id="btn-hint" class="bg-amber-500/20 hover:bg-amber-500/40 text-amber-300 border border-amber-500/50 text-xs px-3 py-2 rounded-xl font-bold flex items-center gap-1.5 transition-all shrink-0">
+                    <i class="fa-solid fa-lightbulb text-amber-400"></i>
+                    <span class="hidden sm:inline">Aiuto</span>
+                </button>
+            </div>
+
+            <!-- Smartboard Code Editor Frame -->
+            <div class="glass-panel rounded-3xl p-4 sm:p-6 border border-emerald-500/30 shadow-2xl bg-slate-950/80 flex flex-col gap-4">
+                
+                <!-- Blackboard Header bar with Language tag -->
+                <div class="flex justify-between items-center border-b border-slate-800 pb-3">
+                    <div class="flex items-center gap-2">
+                        <span class="w-3 h-3 rounded-full bg-red-500 inline-block"></span>
+                        <span class="w-3 h-3 rounded-full bg-yellow-500 inline-block"></span>
+                        <span class="w-3 h-3 rounded-full bg-green-500 inline-block"></span>
+                        <span id="level-title" class="text-xs sm:text-sm font-bold text-gray-300 ml-2">Esercizio Python</span>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <span id="diff-badge" class="bg-green-500/20 text-green-400 border border-green-500/40 text-xs px-3 py-1 rounded-full font-bold uppercase tracking-wider code-font">
+                            Facile
+                        </span>
+                        <span id="lang-badge" class="bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 text-xs px-3 py-1 rounded-full font-bold uppercase tracking-wider code-font">
+                            Python 3
+                        </span>
+                    </div>
+                </div>
+
+                <!-- Code Workspace Box -->
+                <div class="bg-slate-900/90 rounded-2xl p-4 border border-slate-800 code-font text-xs sm:text-base leading-relaxed overflow-x-auto shadow-inner text-gray-200">
+                    <div id="code-content" class="space-y-1">
+                        <!-- Code lines inserted dynamically via JS -->
+                    </div>
+                </div>
+
+                <!-- Answer Selection / Input Controls -->
+                <div id="interaction-area" class="flex flex-col gap-3 pt-2">
+                    <!-- Dynamic option buttons or submit form will render here -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Level Selector Modal (Hidden by default) -->
+        <div id="level-modal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-50 hidden flex items-center justify-center p-4 pointer-events-auto">
+            <div class="glass-panel p-6 sm:p-8 rounded-3xl max-w-2xl w-full border border-white/20 shadow-2xl flex flex-col gap-5 max-h-[90vh]">
+                <div class="flex justify-between items-center border-b border-slate-800 pb-4">
+                    <div>
+                        <h2 class="text-xl sm:text-2xl font-black text-white tracking-wide">SELEZIONA LIVELLO</h2>
+                        <p class="text-xs text-gray-400">ISISS MATESE - ITI • IPSEOA • ITA</p>
+                    </div>
+                    <button id="btn-close-modal" class="text-gray-400 hover:text-white text-2xl font-black px-2">
+                        <i class="fa-solid fa-xmark"></i>
+                    </button>
+                </div>
+
+                <!-- Grid of Levels -->
+                <div id="levels-grid" class="grid grid-cols-2 sm:grid-cols-3 gap-3 overflow-y-auto p-1">
+                    <!-- Populated dynamically by JS -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Success Level Completion Modal -->
+        <div id="success-modal" class="fixed inset-0 bg-slate-950/85 backdrop-blur-md z-50 hidden flex items-center justify-center p-4 pointer-events-auto">
+            <div class="glass-panel p-6 sm:p-8 rounded-3xl max-w-md w-full border border-green-500/40 text-center shadow-2xl flex flex-col items-center gap-4 glow-active">
+                <div class="w-20 h-20 bg-green-500/20 text-green-400 rounded-3xl flex items-center justify-center text-4xl border-2 border-green-400 shadow-lg animate-bounce">
+                    <i class="fa-solid fa-circle-check"></i>
+                </div>
+
+                <div>
+                    <h2 class="text-2xl sm:text-3xl font-black text-white tracking-wider uppercase mb-1">CODICE CORRETTO!</h2>
+                    <p id="success-explanation" class="text-xs sm:text-sm text-gray-300">Ottimo lavoro! Il professore è fiero di te!</p>
+                </div>
+
+                <div class="flex justify-center gap-2 text-2xl text-amber-400 my-1">
+                    <i class="fa-solid fa-star"></i>
+                    <i class="fa-solid fa-star"></i>
+                    <i class="fa-solid fa-star"></i>
+                </div>
+
+                <p id="success-reward" class="text-sm font-bold text-amber-300"></p>
+
+                <button id="btn-next-level" class="w-full bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-400 hover:to-emerald-500 active:scale-95 text-white font-black py-3.5 px-6 rounded-2xl text-base tracking-wider uppercase transition-all shadow-xl">
+                    PROSSIMO LIVELLO 🚀
+                </button>
+            </div>
+        </div>
+
+        <!-- Footer Bar -->
+        <div class="text-center text-[10px] text-slate-400 font-semibold tracking-wider uppercase pointer-events-auto">
+            ISISS MATESE • Laboratorio di Informatica 3D • ITI • IPSEOA • ITA
+        </div>
+    </div>
+
+    <!-- Main Logic and 3D Engine Script -->
+    <script>
+        const LEVELS_DATA = [
+            {
+                id: 1,
+                difficulty: 1,
+                title: "1. Il Primo Hello World in Python",
+                lang: "Python",
+                langColor: "bg-amber-500/20 text-amber-300 border-amber-500/40",
+                intro: "Ciao! Aiutami a completare l'istruzione per stampare a schermo il saluto della scuola!",
+                code: [
+                    `<span class="text-purple-400"># Stampa il messaggio della scuola</span>`,
+                    `<span class="text-blue-400">print</span>(<span class="bg-slate-800 text-yellow-300 px-2 py-0.5 rounded border border-dashed border-yellow-500">[ ??? ]</span>)`
+                ],
+                type: "MULTIPLE_CHOICE",
+                options: [
+                    { text: `"Benvenuti all'ISISS MATESE!"`, correct: true },
+                    { text: `Benvenuti all'ISISS MATESE!`, correct: false },
+                    { text: `print("Hello World")`, correct: false },
+                    { text: `<p>Hello</p>`, correct: false }
+                ],
+                hint: "In Python le stringhe di testo devono essere racchiuse tra virgolette doppie o singole!",
+                explanation: "Perfetto! In Python usiamo print(...) con le virgolette per mostrare del testo a schermo."
+            },
+            {
+                id: 2,
+                difficulty: 1,
+                title: "2. Titolo Principale in HTML",
+                lang: "HTML5",
+                langColor: "bg-orange-500/20 text-orange-400 border-orange-500/40",
+                intro: "Un sito web dell'istituto ha bisogno del tag del titolo principale. Quale tag si usa?",
+                code: [
+                    `<span class="text-gray-500">&lt;!-- Titolo principale del sito --&gt;</span>`,
+                    `<span class="text-blue-400">&lt;<span class="bg-slate-800 text-yellow-300 px-2 py-0.5 rounded border border-dashed border-yellow-500">[ ??? ]</span>&gt;</span>ISISS MATESE ITI<span class="text-blue-400">&lt;/h1&gt;</span>`
+                ],
+                type: "MULTIPLE_CHOICE",
+                options: [
+                    { text: `h1`, correct: true },
+                    { text: `title-head`, correct: false },
+                    { text: `p`, correct: false },
+                    { text: `header-text`, correct: false }
+                ],
+                hint: "I titoli principali in HTML vanno da <h1> (più grande) a <h6> (più piccolo).",
+                explanation: "Esatto! Il tag <h1> definisce l'intestazione più importante della pagina web."
+            },
+            {
+                id: 3,
+                difficulty: 1,
+                title: "3. Dichiarazione di Variabile in JavaScript",
+                lang: "JavaScript",
+                langColor: "bg-yellow-500/20 text-yellow-400 border-yellow-500/40",
+                intro: "Vogliamo memorizzare il numero di studenti dell'istituto in JS moderno. Quale parola chiave usiamo?",
+                code: [
+                    `<span class="text-purple-400">// Dichiarazione della variabile studenti</span>`,
+                    `<span class="bg-slate-800 text-yellow-300 px-2 py-0.5 rounded border border-dashed border-yellow-500">[ ??? ]</span> studenti = <span class="text-emerald-400">850</span>;`
+                ],
+                type: "MULTIPLE_CHOICE",
+                options: [
+                    { text: `let`, correct: true },
+                    { text: `variable`, correct: false },
+                    { text: `integer`, correct: false },
+                    { text: `def`, correct: false }
+                ],
+                hint: "In JavaScript moderno usiamo 'let' per variabili modificabili o 'const' per valori costanti.",
+                explanation: "Bravissimo! 'let' definisce una variabile con ambito di blocco in JavaScript."
+            },
+            {
+                id: 4,
+                difficulty: 2,
+                title: "4. Trova il Bug in C++!",
+                lang: "C++",
+                langColor: "bg-blue-500/20 text-blue-400 border-blue-500/40",
+                intro: "Trova la riga contenente un errore di sintassi (manca un carattere fondamentale alla fine) e cliccala!",
+                code: [
+                    `<span class="text-purple-400">#include &lt;iostream&gt;</span>`,
+                    `<span class="text-blue-400">int</span> <span class="text-yellow-400">main</span>() {`,
+                    `    std::cout &lt;&lt; <span class="text-emerald-300">"Corso ITI ISISS MATESE"</span>`,
+                    `    <span class="text-blue-400">return</span> <span class="text-cyan-300">0</span>;`,
+                    `}`
+                ],
+                type: "BUG_HUNT",
+                bugLineIndex: 2,
+                hint: "In C++ ogni istruzione deve terminare obbligatoriamente con un punto e virgola ';'.",
+                explanation: "Trovato! Mancava il punto e virgola ';' alla fine dell'istruzione std::cout!"
+            },
+            {
+                id: 5,
+                difficulty: 1,
+                title: "5. Interrogazione del Database SQL",
+                lang: "SQL",
+                langColor: "bg-cyan-500/20 text-cyan-400 border-cyan-500/40",
+                intro: "Vogliamo selezionare tutti i corsi registrati nella tabella dell'istituto. Completa il comando:",
+                code: [
+                    `<span class="text-purple-400">-- Seleziona tutti i record dalla tabella corsi</span>`,
+                    `<span class="text-blue-400">SELECT</span> <span class="bg-slate-800 text-yellow-300 px-2 py-0.5 rounded border border-dashed border-yellow-500">[ ??? ]</span> <span class="text-blue-400">FROM</span> corsi_matese;`
+                ],
+                type: "MULTIPLE_CHOICE",
+                options: [
+                    { text: `*`, correct: true },
+                    { text: `ALL`, correct: false },
+                    { text: `EVERY`, correct: false },
+                    { text: `table`, correct: false }
+                ],
+                hint: "In SQL l'asterisco '*' è il carattere jolly che indica 'tutti i campi/colonne'.",
+                explanation: "Ottimo! L'asterisco '*' seleziona tutte le colonne disponibili nella tabella."
+            },
+            {
+                id: 6,
+                difficulty: 2,
+                title: "6. Condizione IF in Python",
+                lang: "Python",
+                langColor: "bg-amber-500/20 text-amber-300 border-amber-500/40",
+                intro: "Verifichiamo se il voto dello studente è maggiore o uguale a 60 per promuoverlo!",
+                code: [
+                    `voto = <span class="text-cyan-400">75</span>`,
+                    `<span class="text-blue-400">if</span> voto <span class="bg-slate-800 text-yellow-300 px-2 py-0.5 rounded border border-dashed border-yellow-500">[ ??? ]</span> <span class="text-cyan-400">60</span>:`,
+                    `    <span class="text-blue-400">print</span>(<span class="text-emerald-300">"Esame Superato!"</span>)`
+                ],
+                type: "MULTIPLE_CHOICE",
+                options: [
+                    { text: `>=`, correct: true },
+                    { text: `=>`, correct: false },
+                    { text: `EQUALS`, correct: false },
+                    { text: `->`, correct: false }
+                ],
+                hint: "L'operatore 'maggioranza o uguaglianza' si scrive con il simbolo '>' seguito da '='.",
+                explanation: "Esatto! In Python e nella maggior parte dei linguaggi usiamo '>=' per verificare 'maggiore o uguale'."
+            },
+            {
+                id: 7,
+                difficulty: 1,
+                title: "7. Stile del Colore in CSS3",
+                lang: "CSS3",
+                langColor: "bg-pink-500/20 text-pink-400 border-pink-500/40",
+                intro: "Cambiamo il colore del testo dei pulsanti nel colore verde della scuola. Quale proprietà CSS usiamo?",
+                code: [
+                    `<span class="text-yellow-400">.btn-matese</span> {`,
+                    `    <span class="bg-slate-800 text-yellow-300 px-2 py-0.5 rounded border border-dashed border-yellow-500">[ ??? ]</span>: <span class="text-emerald-400">#22c55e</span>;`,
+                    `    <span class="text-cyan-300">font-weight</span>: <span class="text-purple-300">bold</span>;`,
+                    `}`
+                ],
+                type: "MULTIPLE_CHOICE",
+                options: [
+                    { text: `color`, correct: true },
+                    { text: `font-color`, correct: false },
+                    { text: `text-style`, correct: false },
+                    { text: `text-paint`, correct: false }
+                ],
+                hint: "In CSS la proprietà per stabilire il colore del testo si chiama semplicemente 'color'.",
+                explanation: "Giusto! La proprietà 'color' controlla il colore del testo in CSS."
+            },
+            {
+                id: 8,
+                difficulty: 2,
+                title: "8. Ciclo For in JavaScript",
+                lang: "JavaScript",
+                langColor: "bg-yellow-500/20 text-yellow-400 border-yellow-500/40",
+                intro: "Vogliamo ripetere un ciclo 5 volte partendo da i = 0. Quale condizione di arresto manca?",
+                code: [
+                    `<span class="text-blue-400">for</span> (<span class="text-blue-400">let</span> i = <span class="text-cyan-300">0</span>; <span class="bg-slate-800 text-yellow-300 px-2 py-0.5 rounded border border-dashed border-yellow-500">[ ??? ]</span>; i++) {`,
+                    `    console.<span class="text-yellow-300">log</span>(<span class="text-emerald-300">"Laboratorio IPSEOA #"</span> + i);`,
+                    `}`
+                ],
+                type: "MULTIPLE_CHOICE",
+                options: [
+                    { text: `i < 5`, correct: true },
+                    { text: `i == 5`, correct: false },
+                    { text: `i = 5`, correct: false },
+                    { text: `until 5`, correct: false }
+                ],
+                hint: "Il ciclo deve continuare finché 'i' è strettamente minore di 5 (cioè per 0, 1, 2, 3, 4).",
+                explanation: "Perfetto! La condizione 'i < 5' fa eseguire il ciclo esattamente per 5 iterazioni."
+            },
+            {
+                id: 9,
+                difficulty: 2,
+                title: "9. Creazione di una Funzione in Python",
+                lang: "Python",
+                langColor: "bg-amber-500/20 text-amber-300 border-amber-500/40",
+                intro: "Quale parola chiave si usa per definire una funzione chiamata 'calcola_media' in Python?",
+                code: [
+                    `<span class="bg-slate-800 text-yellow-300 px-2 py-0.5 rounded border border-dashed border-yellow-500">[ ??? ]</span> <span class="text-yellow-300">calcola_media</span>(voti):`,
+                    `    <span class="text-blue-400">return</span> sum(voti) / len(voti)`
+                ],
+                type: "MULTIPLE_CHOICE",
+                options: [
+                    { text: `def`, correct: true },
+                    { text: `function`, correct: false },
+                    { text: `func`, correct: false },
+                    { text: `create`, correct: false }
+                ],
+                hint: "In Python 'def' sta per 'define function'.",
+                explanation: "Grandioso! 'def' è la parola chiave usata in Python per dichiarare le funzioni."
+            },
+            {
+                id: 10,
+                difficulty: 2,
+                title: "10. Selezione del DOM in JavaScript",
+                lang: "JavaScript",
+                langColor: "bg-yellow-500/20 text-yellow-400 border-yellow-500/40",
+                intro: "Come selezioniamo l'elemento HTML con id 'logo-matese' usando JavaScript?",
+                code: [
+                    `<span class="text-blue-400">const</span> logo = document.<span class="bg-slate-800 text-yellow-300 px-2 py-0.5 rounded border border-dashed border-yellow-500">[ ??? ]</span>(<span class="text-emerald-300">'logo-matese'</span>);`
+                ],
+                type: "MULTIPLE_CHOICE",
+                options: [
+                    { text: `getElementById`, correct: true },
+                    { text: `findClass`, correct: false },
+                    { text: `selectElement`, correct: false },
+                    { text: `fetchTag`, correct: false }
+                ],
+                hint: "Il metodo standard del Document Object Model per recuperare elementi tramite il loro ID univoco.",
+                explanation: "Eccellente! document.getElementById() è il metodo classico per accedere agli elementi HTML!"
+            }
+        ];
+
+        // ---------- Livelli aggiuntivi (11-23): medi e difficili, con nuovi tipi di sfida ----------
+        {
+            const BLANK = '<span class="bg-slate-800 text-yellow-300 px-2 py-0.5 rounded border border-dashed border-yellow-500">[ ??? ]</span>';
+            const kw = t => `<span class="text-blue-400">${t}</span>`;
+            const st = t => `<span class="text-emerald-300">${t}</span>`;
+            const nm = t => `<span class="text-cyan-300">${t}</span>`;
+            const cm = t => `<span class="text-purple-400">${t}</span>`;
+            const fn = t => `<span class="text-yellow-300">${t}</span>`;
+            const PY = "bg-amber-500/20 text-amber-300 border-amber-500/40";
+            const HTML = "bg-orange-500/20 text-orange-400 border-orange-500/40";
+            const JS = "bg-yellow-500/20 text-yellow-400 border-yellow-500/40";
+            const SQL = "bg-cyan-500/20 text-cyan-400 border-cyan-500/40";
+            const CSS = "bg-pink-500/20 text-pink-400 border-pink-500/40";
+            const CPP = "bg-blue-500/20 text-blue-400 border-blue-500/40";
+
+            LEVELS_DATA.push(
+                // ----- MEDIO -----
+                {
+                    id: 11, difficulty: 2,
+                    title: "11. Gli indici delle liste in Python",
+                    lang: "Python", langColor: PY,
+                    intro: "Abbiamo una lista di studenti. Quale indice stampa 'Luca'? Ricorda: si parte da 0!",
+                    code: [
+                        `studenti = [${st('"Anna"')}, ${st('"Luca"')}, ${st('"Sara"')}]`,
+                        `${kw('print')}(studenti[${BLANK}])`
+                    ],
+                    type: "MULTIPLE_CHOICE",
+                    options: [
+                        { text: `1`, correct: true },
+                        { text: `2`, correct: false },
+                        { text: `0`, correct: false },
+                        { text: `3`, correct: false }
+                    ],
+                    hint: "Il primo elemento ha indice 0, il secondo indice 1, il terzo indice 2...",
+                    explanation: "Esatto! 'Luca' è il secondo elemento, quindi ha indice 1: in programmazione si conta da zero."
+                },
+                {
+                    id: 12, difficulty: 2,
+                    title: "12. Il link in HTML",
+                    lang: "HTML5", langColor: HTML,
+                    intro: "Vogliamo creare un collegamento a un sito. Quale attributo contiene l'indirizzo di destinazione?",
+                    code: [
+                        `<span class="text-gray-500">&lt;!-- Link al sito --&gt;</span>`,
+                        `<span class="text-blue-400">&lt;a</span> ${BLANK}=${st('"https://www.example.org"')}<span class="text-blue-400">&gt;</span>Il nostro sito<span class="text-blue-400">&lt;/a&gt;</span>`
+                    ],
+                    type: "MULTIPLE_CHOICE",
+                    options: [
+                        { text: `href`, correct: true },
+                        { text: `src`, correct: false },
+                        { text: `link`, correct: false },
+                        { text: `url`, correct: false }
+                    ],
+                    hint: "È l'abbreviazione di 'hypertext reference'.",
+                    explanation: "Bravo! L'attributo href indica la destinazione del collegamento nel tag <a>."
+                },
+                {
+                    id: 13, difficulty: 2,
+                    title: "13. Filtrare i dati con SQL",
+                    lang: "SQL", langColor: SQL,
+                    intro: "Vogliamo vedere solo gli studenti maggiorenni. Quale parola chiave introduce la condizione?",
+                    code: [
+                        `${cm('-- Solo gli studenti con almeno 18 anni')}`,
+                        `${kw('SELECT')} * ${kw('FROM')} studenti ${BLANK} eta &gt;= ${nm('18')};`
+                    ],
+                    type: "MULTIPLE_CHOICE",
+                    options: [
+                        { text: `WHERE`, correct: true },
+                        { text: `WHEN`, correct: false },
+                        { text: `IF`, correct: false },
+                        { text: `ONLY`, correct: false }
+                    ],
+                    hint: "In inglese significa 'dove': filtra le righe che rispettano la condizione.",
+                    explanation: "Perfetto! WHERE filtra le righe della tabella in base a una condizione."
+                },
+                {
+                    id: 14, difficulty: 2,
+                    title: "14. Trasformare un array in JavaScript",
+                    lang: "JavaScript", langColor: JS,
+                    intro: "Vogliamo raddoppiare ogni numero. Quale metodo crea un NUOVO array applicando una funzione a ogni elemento?",
+                    code: [
+                        `${kw('const')} numeri = [${nm('1')}, ${nm('2')}, ${nm('3')}];`,
+                        `${kw('const')} doppi = numeri.${BLANK}(n =&gt; n * ${nm('2')});`,
+                        `${cm('// doppi vale [2, 4, 6]')}`
+                    ],
+                    type: "MULTIPLE_CHOICE",
+                    options: [
+                        { text: `map`, correct: true },
+                        { text: `filter`, correct: false },
+                        { text: `push`, correct: false },
+                        { text: `find`, correct: false }
+                    ],
+                    hint: "Pensa a una 'mappa' che collega ogni valore di partenza al suo risultato.",
+                    explanation: "Giusto! map() restituisce un nuovo array con il risultato della funzione per ogni elemento."
+                },
+                {
+                    id: 15, difficulty: 2,
+                    title: "15. Trova il Bug in Python!",
+                    lang: "Python", langColor: PY,
+                    intro: "Questo programma non parte nemmeno: trova la riga con l'errore di sintassi e cliccala!",
+                    code: [
+                        `eta = ${nm('17')}`,
+                        `${kw('if')} eta &gt;= ${nm('18')}`,
+                        `    ${kw('print')}(${st('"Maggiorenne"')})`,
+                        `${kw('else')}:`,
+                        `    ${kw('print')}(${st('"Minorenne"')})`
+                    ],
+                    type: "BUG_HUNT",
+                    bugLineIndex: 1,
+                    hint: "In Python la riga di un 'if' deve finire con un carattere speciale: confrontala con la riga dell'else.",
+                    explanation: "Trovato! Dopo la condizione dell'if servono i due punti ':'."
+                },
+
+                // ----- DIFFICILE -----
+                {
+                    id: 16, difficulty: 3,
+                    title: "16. Scrivi tu: il ciclo for in Python",
+                    lang: "Python", langColor: PY,
+                    intro: "Questa volta niente scelte: SCRIVI la parola mancante! Quale funzione genera i numeri da 0 a 4?",
+                    code: [
+                        `${kw('for')} i ${kw('in')} ${BLANK}(${nm('5')}):`,
+                        `    ${kw('print')}(${st('"Evviva ISISS!"')})`
+                    ],
+                    type: "TYPE_ANSWER",
+                    answers: ["range"],
+                    hint: "È una funzione già pronta di Python che significa 'intervallo'.",
+                    explanation: "Ottimo! range(5) genera 0, 1, 2, 3, 4: il ciclo gira esattamente 5 volte."
+                },
+                {
+                    id: 17, difficulty: 3,
+                    title: "17. Rimetti in ordine: la funzione",
+                    lang: "Python", langColor: PY,
+                    intro: "Le righe sono mescolate! Clicca nell'ordine giusto per far funzionare il programma.",
+                    code: [
+                        `${kw('def')} ${fn('somma')}(a, b):`,
+                        `    risultato = a + b`,
+                        `    ${kw('return')} risultato`,
+                        `${kw('print')}(${fn('somma')}(${nm('2')}, ${nm('3')}))`
+                    ],
+                    type: "ORDER_LINES",
+                    hint: "Prima si definisce la funzione (def), poi si usa; il return chiude il corpo.",
+                    explanation: "Perfetto! Prima si definisce la funzione, poi la si chiama con print."
+                },
+                {
+                    id: 18, difficulty: 3,
+                    title: "18. Che cosa stampa? (Python)",
+                    lang: "Python", langColor: PY,
+                    intro: "Leggi bene il codice: quale valore verrà stampato a schermo?",
+                    code: [
+                        `x = ${nm('3')}`,
+                        `y = ${nm('2')}`,
+                        `${kw('print')}(x ** y)`
+                    ],
+                    type: "MULTIPLE_CHOICE",
+                    options: [
+                        { text: `9`, correct: true },
+                        { text: `6`, correct: false },
+                        { text: `5`, correct: false },
+                        { text: `8`, correct: false }
+                    ],
+                    hint: "In Python il doppio asterisco non è una moltiplicazione.",
+                    explanation: "Esatto! L'operatore ** è l'elevamento a potenza: 3 alla seconda fa 9."
+                },
+                {
+                    id: 19, difficulty: 3,
+                    title: "19. Scrivi tu: contare con SQL",
+                    lang: "SQL", langColor: SQL,
+                    intro: "Quanti corsi ci sono nella tabella? SCRIVI la funzione SQL che conta le righe.",
+                    code: [
+                        `${cm('-- Numero totale di corsi')}`,
+                        `${kw('SELECT')} ${BLANK}(*) ${kw('FROM')} corsi_matese;`
+                    ],
+                    type: "TYPE_ANSWER",
+                    answers: ["count"],
+                    hint: "In inglese 'contare' si dice così: è una funzione di aggregazione.",
+                    explanation: "Grandioso! COUNT(*) restituisce il numero di righe della tabella."
+                },
+                {
+                    id: 20, difficulty: 3,
+                    title: "20. Il bug nascosto in C++",
+                    lang: "C++", langColor: CPP,
+                    intro: "Questo codice compila, ma legge fuori dall'array! Trova la riga con l'errore logico.",
+                    code: [
+                        `${kw('int')} voti[${nm('5')}] = {${nm('6')}, ${nm('7')}, ${nm('8')}, ${nm('9')}, ${nm('10')}};`,
+                        `${kw('for')} (${kw('int')} i = ${nm('0')}; i &lt;= ${nm('5')}; i++) {`,
+                        `    std::cout &lt;&lt; voti[i] &lt;&lt; std::endl;`,
+                        `}`
+                    ],
+                    type: "BUG_HUNT",
+                    bugLineIndex: 1,
+                    hint: "L'array ha 5 elementi, con indici da 0 a 4. Cosa succede quando i vale 5?",
+                    explanation: "Trovato! Con i <= 5 si legge voti[5], che non esiste. La condizione corretta è i < 5."
+                },
+                {
+                    id: 21, difficulty: 3,
+                    title: "21. Rimetti in ordine: il ciclo while",
+                    lang: "JavaScript", langColor: JS,
+                    intro: "Ricostruisci il ciclo: clicca le righe nell'ordine corretto di scrittura.",
+                    code: [
+                        `${kw('let')} contatore = ${nm('0')};`,
+                        `${kw('while')} (contatore &lt; ${nm('3')}) {`,
+                        `    console.${fn('log')}(contatore);`,
+                        `    contatore++;`,
+                        `}`
+                    ],
+                    type: "ORDER_LINES",
+                    hint: "Prima si crea la variabile, poi si apre il while; la graffa che chiude va per ultima.",
+                    explanation: "Bravissimo! Inizializzazione, condizione, corpo con incremento e infine la chiusura del blocco."
+                },
+                {
+                    id: 22, difficulty: 3,
+                    title: "22. Che cosa stampa? (JavaScript)",
+                    lang: "JavaScript", langColor: JS,
+                    intro: "JavaScript a volte sorprende! Cosa viene stampato in console?",
+                    code: [
+                        `console.${fn('log')}(${st('"5"')} + ${nm('3')});`
+                    ],
+                    type: "MULTIPLE_CHOICE",
+                    options: [
+                        { text: `53`, correct: true },
+                        { text: `8`, correct: false },
+                        { text: `2`, correct: false },
+                        { text: `NaN`, correct: false }
+                    ],
+                    hint: "Il primo valore è tra virgolette: è una stringa. Cosa fa '+' con le stringhe?",
+                    explanation: "Esatto! Con una stringa l'operatore + concatena: '5' e 3 diventano '53'."
+                },
+                {
+                    id: 23, difficulty: 3,
+                    title: "23. Scrivi tu: il menu con Flexbox",
+                    lang: "CSS3", langColor: CSS,
+                    intro: "SCRIVI il valore di display che dispone le voci del menu in riga e permette di usare justify-content.",
+                    code: [
+                        `${fn('.menu')} {`,
+                        `    ${nm('display')}: ${BLANK};`,
+                        `    ${nm('justify-content')}: ${st('space-between')};`,
+                        `}`
+                    ],
+                    type: "TYPE_ANSWER",
+                    answers: ["flex", "flex;"],
+                    hint: "È il nome del modello di layout 'flessibile' di CSS3.",
+                    explanation: "Ottimo! display: flex attiva Flexbox e rende utilizzabili le proprietà come justify-content."
+                }
+            );
+        }
+
+        function loadSaved(key, fallback) {
+            try {
+                const raw = localStorage.getItem(key);
+                return raw === null ? fallback : JSON.parse(raw);
+            } catch (e) {
+                return fallback; // storage blocked or corrupted: start fresh
+            }
+        }
+
+        let gameState = {
+            currentLevelIndex: 0,
+            completedLevels: Array.isArray(loadSaved('isiss_code_completed', [])) ? loadSaved('isiss_code_completed', []) : [],
+            totalStars: parseInt(loadSaved('isiss_code_stars', 0), 10) || 0,
+            audioEnabled: true
+        };
+
+        // Three.js Core Variables
+        let scene, camera, renderer;
+        let profGroup, profHead, profRightArm, blackboardMesh;
+        let clock = (typeof THREE !== 'undefined') ? new THREE.Clock() : null;
+
+        // Audio System (Web Audio API Synthesizer)
+        let audioCtx = null;
+
+        function initAudio() {
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            if (audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+        }
+
+        function playSound(type) {
+            if (!audioCtx || !gameState.audioEnabled) return;
+            try {
+                const now = audioCtx.currentTime;
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+
+                if (type === 'success') {
+                    osc.type = 'sine';
+                    osc.frequency.setValueAtTime(523.25, now); // C5
+                    osc.frequency.setValueAtTime(659.25, now + 0.1); // E5
+                    osc.frequency.setValueAtTime(783.99, now + 0.2); // G5
+                    osc.frequency.setValueAtTime(1046.50, now + 0.3); // C6
+                    gain.gain.setValueAtTime(0.2, now);
+                    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.5);
+                    osc.start(now);
+                    osc.stop(now + 0.5);
+                } else if (type === 'click') {
+                    osc.type = 'triangle';
+                    osc.frequency.setValueAtTime(400, now);
+                    osc.frequency.exponentialRampToValueAtTime(150, now + 0.08);
+                    gain.gain.setValueAtTime(0.1, now);
+                    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.08);
+                    osc.start(now);
+                    osc.stop(now + 0.08);
+                } else if (type === 'error') {
+                    osc.type = 'sawtooth';
+                    osc.frequency.setValueAtTime(220, now);
+                    osc.frequency.setValueAtTime(160, now + 0.15);
+                    gain.gain.setValueAtTime(0.25, now);
+                    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
+                    osc.start(now);
+                    osc.stop(now + 0.3);
+                }
+            } catch(e) {}
+        }
+
+        function createIsissLogoTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 512;
+            canvas.height = 512;
+            const ctx = canvas.getContext('2d');
+
+            // White Base Background
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, 512, 512);
+
+            // Colorful Institute Accents (ITI, IPSEOA, ITA)
+            const colors = [
+                { col: '#84cc16', text: 'ITI' },
+                { col: '#f97316', text: 'ISISS' },
+                { col: '#ec4899', text: 'IPSEOA' },
+                { col: '#06b6d4', text: 'MATESE' },
+                { col: '#10b981', text: 'ITA' }
+            ];
+
+            colors.forEach((c, idx) => {
+                ctx.fillStyle = c.col;
+                ctx.beginPath();
+                const angle = (idx * Math.PI * 2) / 5;
+                const cx = 256 + Math.cos(angle) * 155;
+                const cy = 256 + Math.sin(angle) * 155;
+                ctx.arc(cx, cy, 75, 0, Math.PI * 2);
+                ctx.fill();
+
+                ctx.fillStyle = '#ffffff';
+                ctx.font = '900 28px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(c.text, cx, cy);
+            });
+
+            // Center ISISS MATESE Emblem
+            ctx.fillStyle = '#10b981';
+            ctx.beginPath();
+            ctx.arc(256, 256, 95, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.fillStyle = '#ffffff';
+            ctx.font = '900 38px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText('ISISS', 256, 235);
+            ctx.fillText('MATESE', 256, 280);
+
+            // Green Border
+            ctx.strokeStyle = '#22c55e';
+            ctx.lineWidth = 14;
+            ctx.strokeRect(10, 10, 492, 492);
+
+            const texture = new THREE.CanvasTexture(canvas);
+            texture.wrapS = THREE.RepeatWrapping;
+            texture.wrapT = THREE.RepeatWrapping;
+            return texture;
+        }
+
+        function init3DScene() {
+            const container = document.getElementById('canvas-container');
+
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x0b132b);
+            scene.fog = new THREE.FogExp2(0x0b132b, 0.025);
+
+            camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 100);
+            camera.position.set(0, 2.2, 7.5);
+            camera.lookAt(0, 1.8, 0);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            container.appendChild(renderer.domElement);
+
+            // Ambient & Directional Lights
+            const ambient = new THREE.AmbientLight(0xffffff, 0.65);
+            scene.add(ambient);
+
+            const spotLight = new THREE.SpotLight(0x38bdf8, 1.2);
+            spotLight.position.set(5, 8, 5);
+            spotLight.angle = Math.PI / 5;
+            spotLight.penumbra = 0.5;
+            spotLight.castShadow = true;
+            scene.add(spotLight);
+
+            const greenLight = new THREE.PointLight(0x22c55e, 0.9, 25);
+            greenLight.position.set(-4, 3, 3);
+            scene.add(greenLight);
+
+            // Floor
+            const floor = new THREE.Mesh(
+                new THREE.PlaneGeometry(40, 40),
+                new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.9 })
+            );
+            floor.rotation.x = -Math.PI / 2;
+            floor.receiveShadow = true;
+            scene.add(floor);
+
+            // Back wall
+            const wall = new THREE.Mesh(
+                new THREE.PlaneGeometry(40, 14),
+                new THREE.MeshStandardMaterial({ color: 0x172554, roughness: 1 })
+            );
+            wall.position.set(0, 7, -4);
+            scene.add(wall);
+
+            // Blackboard (frame + green board + school logo)
+            blackboardMesh = new THREE.Group();
+            const frame = new THREE.Mesh(
+                new THREE.BoxGeometry(9.2, 4.6, 0.2),
+                new THREE.MeshStandardMaterial({ color: 0x78350f, roughness: 0.7 })
+            );
+            blackboardMesh.add(frame);
+            const board = new THREE.Mesh(
+                new THREE.PlaneGeometry(8.7, 4.1),
+                new THREE.MeshStandardMaterial({ color: 0x14532d, roughness: 0.95 })
+            );
+            board.position.z = 0.11;
+            blackboardMesh.add(board);
+            const logo = new THREE.Mesh(
+                new THREE.PlaneGeometry(1.6, 1.6),
+                new THREE.MeshBasicMaterial({ map: createIsissLogoTexture() })
+            );
+            logo.position.set(3.3, 1.2, 0.13);
+            blackboardMesh.add(logo);
+            blackboardMesh.position.set(0, 3.2, -3.85);
+            scene.add(blackboardMesh);
+
+            // Professor (built only from basic geometries)
+            profGroup = new THREE.Group();
+            const suit = new THREE.MeshStandardMaterial({ color: 0x1e40af, roughness: 0.6 });
+            const skin = new THREE.MeshStandardMaterial({ color: 0xfcd9b6, roughness: 0.8 });
+            const dark = new THREE.MeshStandardMaterial({ color: 0x1f2937, roughness: 0.8 });
+
+            const body = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.6, 1.5, 24), suit);
+            body.position.y = 1.35;
+            body.castShadow = true;
+            profGroup.add(body);
+
+            const tie = new THREE.Mesh(
+                new THREE.BoxGeometry(0.14, 0.7, 0.05),
+                new THREE.MeshStandardMaterial({ color: 0x22c55e })
+            );
+            tie.position.set(0, 1.55, 0.55);
+            profGroup.add(tie);
+
+            [-0.25, 0.25].forEach(x => {
+                const leg = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.7, 0.35), dark);
+                leg.position.set(x, 0.35, 0);
+                leg.castShadow = true;
+                profGroup.add(leg);
+            });
+
+            profHead = new THREE.Group();
+            const headMesh = new THREE.Mesh(new THREE.SphereGeometry(0.4, 24, 24), skin);
+            headMesh.castShadow = true;
+            profHead.add(headMesh);
+            const hair = new THREE.Mesh(
+                new THREE.SphereGeometry(0.42, 24, 12, 0, Math.PI * 2, 0, Math.PI / 2.2),
+                dark
+            );
+            hair.position.y = 0.03;
+            profHead.add(hair);
+            [-0.15, 0.15].forEach(x => {
+                const lens = new THREE.Mesh(
+                    new THREE.TorusGeometry(0.1, 0.02, 8, 20),
+                    new THREE.MeshStandardMaterial({ color: 0x111827 })
+                );
+                lens.position.set(x, 0.05, 0.37);
+                profHead.add(lens);
+            });
+            profHead.position.y = 2.4;
+            profGroup.add(profHead);
+
+            // Left arm (resting)
+            const leftArm = new THREE.Group();
+            const leftArmMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.11, 1.0, 12), suit);
+            leftArmMesh.position.y = -0.5;
+            leftArm.add(leftArmMesh);
+            leftArm.position.set(-0.68, 1.95, 0);
+            leftArm.rotation.z = -0.15;
+            profGroup.add(leftArm);
+
+            // Right arm (waving)
+            profRightArm = new THREE.Group();
+            const rightArmMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.11, 1.0, 12), suit);
+            rightArmMesh.position.y = -0.5;
+            profRightArm.add(rightArmMesh);
+            const hand = new THREE.Mesh(new THREE.SphereGeometry(0.13, 12, 12), skin);
+            hand.position.y = -1.05;
+            profRightArm.add(hand);
+            profRightArm.position.set(0.68, 1.95, 0);
+            profGroup.add(profRightArm);
+
+            profGroup.position.set(-4.2, 0, 0.5);
+            profGroup.rotation.y = 0.35;
+            scene.add(profGroup);
+
+            window.addEventListener('resize', onResize);
+            animate();
+        }
+
+        function onResize() {
+            if (!renderer || !camera) return;
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        let celebrateUntil = 0;
+
+        function animate() {
+            requestAnimationFrame(animate);
+            const t = clock.getElapsedTime();
+
+            if (profHead) profHead.rotation.y = Math.sin(t * 0.8) * 0.3;
+            if (profRightArm) profRightArm.rotation.z = 2.4 + Math.sin(t * 3) * 0.25;
+            if (profGroup) {
+                profGroup.position.y = t < celebrateUntil
+                    ? Math.abs(Math.sin(t * 9)) * 0.45
+                    : 0;
+            }
+            if (camera) {
+                camera.position.x = Math.sin(t * 0.2) * 0.35;
+                camera.lookAt(0, 1.8, 0);
+            }
+            renderer.render(scene, camera);
+        }
+
+        // ---------- Game logic ----------
+
+        const PLACEHOLDER_CLASSES = 'bg-slate-800 text-yellow-300 px-2 py-0.5 rounded border border-dashed border-yellow-500';
+        const DIFFICULTY = {
+            1: { label: '★☆☆ Facile',    short: 'Facile',    cls: 'bg-green-500/20 text-green-400 border-green-500/40' },
+            2: { label: '★★☆ Medio',     short: 'Medio',     cls: 'bg-amber-500/20 text-amber-300 border-amber-500/40' },
+            3: { label: '★★★ Difficile', short: 'Difficile', cls: 'bg-red-500/20 text-red-400 border-red-500/40' }
+        };
+        let orderProgress = 0;
+        const BADGE_BASE = 'border text-xs px-3 py-1 rounded-full font-bold uppercase tracking-wider code-font';
+        const $ = id => document.getElementById(id);
+
+        function saveProgress() {
+            try {
+                localStorage.setItem('isiss_code_completed', JSON.stringify(gameState.completedLevels));
+                localStorage.setItem('isiss_code_stars', String(gameState.totalStars));
+            } catch (e) { /* storage not available: progress lasts only for this session */ }
+        }
+
+        function renderHUD() {
+            $('hud-level').textContent = (gameState.currentLevelIndex + 1) + '/' + LEVELS_DATA.length;
+            $('hud-stars').textContent = gameState.totalStars;
+        }
+
+        function shuffle(arr) {
+            const a = arr.slice();
+            for (let i = a.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [a[i], a[j]] = [a[j], a[i]];
+            }
+            return a;
+        }
+
+        function setProfText(text) {
+            $('prof-text').textContent = text;
+        }
+
+        function loadLevel(index) {
+            if (index < 0 || index >= LEVELS_DATA.length) index = 0;
+            gameState.currentLevelIndex = index;
+            const level = LEVELS_DATA[index];
+
+            renderHUD();
+            $('level-title').textContent = level.title;
+            const badge = $('lang-badge');
+            badge.className = level.langColor + ' ' + BADGE_BASE;
+            badge.textContent = level.lang;
+            const dInfo = DIFFICULTY[level.difficulty] || DIFFICULTY[1];
+            const dBadge = $('diff-badge');
+            dBadge.className = dInfo.cls + ' ' + BADGE_BASE;
+            dBadge.textContent = dInfo.label;
+            setProfText(level.intro);
+
+            // --- Blackboard: write the code lines ---
+            const codeBox = $('code-content');
+            codeBox.innerHTML = '';
+            let order = level.code.map((_, k) => k);
+            if (level.type === 'ORDER_LINES') {
+                let tries = 0;
+                do { order = shuffle(order); tries++; } while (tries < 20 && order.every((v, k) => v === k));
+            }
+            order.forEach((i, pos) => {
+                const lineHtml = level.code[i];
+                const row = document.createElement('div');
+                row.className = 'code-line flex gap-3 rounded px-1';
+                row.dataset.line = i;
+                row.dataset.pos = pos;
+
+                const num = document.createElement('span');
+                num.className = 'text-slate-600 select-none w-5 text-right shrink-0';
+                num.textContent = pos + 1;
+
+                const text = document.createElement('span');
+                text.className = 'code-text';
+                text.style.whiteSpace = 'pre';
+                text.innerHTML = lineHtml;
+
+                row.appendChild(num);
+                row.appendChild(text);
+                codeBox.appendChild(row);
+            });
+
+            // --- Interaction area ---
+            const area = $('interaction-area');
+            area.innerHTML = '';
+
+            if (level.type === 'MULTIPLE_CHOICE') {
+                const grid = document.createElement('div');
+                grid.className = 'grid grid-cols-1 sm:grid-cols-2 gap-3';
+                shuffle(level.options).forEach(opt => {
+                    const btn = document.createElement('button');
+                    btn.className = 'option-btn code-font text-left bg-slate-800/80 hover:bg-slate-700 active:scale-95 text-gray-100 border border-slate-600 rounded-2xl px-4 py-3 text-sm sm:text-base font-semibold transition-all';
+                    btn.textContent = opt.text;
+                    btn.addEventListener('click', () => onOptionClick(btn, opt, level));
+                    grid.appendChild(btn);
+                });
+                area.appendChild(grid);
+            } else if (level.type === 'BUG_HUNT') {
+                const msg = document.createElement('div');
+                msg.className = 'text-center text-sm text-amber-300 font-semibold';
+                msg.innerHTML = '<i class="fa-solid fa-bug"></i> Clicca sulla riga del codice che contiene l\'errore!';
+                area.appendChild(msg);
+
+                codeBox.querySelectorAll('.code-line').forEach(row => {
+                    row.classList.add('cursor-pointer', 'hover:bg-slate-700/60');
+                    row.addEventListener('click', () => onBugLineClick(row, level));
+                });
+            } else if (level.type === 'ORDER_LINES') {
+                orderProgress = 0;
+                const msg = document.createElement('div');
+                msg.className = 'text-center text-sm text-amber-300 font-semibold';
+                msg.innerHTML = '<i class="fa-solid fa-list-ol"></i> Clicca le righe nell\'ordine corretto, dalla prima all\'ultima!';
+                area.appendChild(msg);
+
+                codeBox.querySelectorAll('.code-line').forEach(row => {
+                    row.classList.add('cursor-pointer', 'hover:bg-slate-700/60');
+                    row.addEventListener('click', () => onOrderLineClick(row, level));
+                });
+            } else if (level.type === 'TYPE_ANSWER') {
+                buildTypeAnswer(area, level);
+            }
+        }
+
+        function buildTypeAnswer(area, level) {
+            const wrap = document.createElement('div');
+            wrap.className = 'flex gap-2';
+
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.id = 'answer-input';
+            input.placeholder = 'Scrivi qui la risposta...';
+            input.autocomplete = 'off';
+            input.setAttribute('autocapitalize', 'off');
+            input.setAttribute('autocorrect', 'off');
+            input.spellcheck = false;
+            input.className = 'code-font flex-1 min-w-0 bg-slate-800 text-gray-100 border border-slate-600 focus:border-emerald-400 outline-none rounded-2xl px-4 py-3 text-sm sm:text-base';
+
+            const btn = document.createElement('button');
+            btn.className = 'bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-black px-5 py-3 rounded-2xl text-sm uppercase tracking-wider transition-all shrink-0';
+            btn.textContent = 'Verifica';
+
+            const submit = () => {
+                initAudio();
+                const value = input.value.trim();
+                if (!value) return;
+                const ok = level.answers.some(a =>
+                    level.caseSensitive ? a === value : a.toLowerCase() === value.toLowerCase());
+                if (ok) {
+                    playSound('success');
+                    const blank = $('code-content').querySelector('.border-dashed');
+                    if (blank) {
+                        blank.textContent = level.answers[0];
+                        blank.className = 'bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded border border-emerald-500';
+                    }
+                    input.disabled = true;
+                    btn.disabled = true;
+                    completeLevel(level);
+                } else {
+                    playSound('error');
+                    input.classList.add('border-red-500');
+                    setProfText('Non è ancora giusto! Controlla la sintassi o chiedi un aiuto con la lampadina 💡');
+                }
+            };
+            btn.addEventListener('click', submit);
+            input.addEventListener('keydown', e => {
+                input.classList.remove('border-red-500');
+                if (e.key === 'Enter') submit();
+            });
+
+            wrap.appendChild(input);
+            wrap.appendChild(btn);
+            area.appendChild(wrap);
+        }
+
+        function onOrderLineClick(row, level) {
+            initAudio();
+            if (row.dataset.done) return;
+            const rows = document.querySelectorAll('#code-content .code-line');
+            if (parseInt(row.dataset.line, 10) === orderProgress) {
+                playSound('click');
+                row.dataset.done = '1';
+                row.classList.add('bg-emerald-500/20', 'ring-1', 'ring-emerald-400');
+                row.querySelector('span').textContent = orderProgress + 1;
+                orderProgress++;
+                if (orderProgress === level.code.length) {
+                    rows.forEach(r => r.classList.remove('cursor-pointer'));
+                    playSound('success');
+                    completeLevel(level);
+                }
+            } else {
+                playSound('error');
+                orderProgress = 0;
+                rows.forEach(r => {
+                    delete r.dataset.done;
+                    r.classList.remove('bg-emerald-500/20', 'ring-1', 'ring-emerald-400');
+                    r.querySelector('span').textContent = parseInt(r.dataset.pos, 10) + 1;
+                });
+                setProfText('Ordine sbagliato, si ricomincia! Pensa a cosa deve venire per primo 🤔');
+            }
+        }
+
+        function onOptionClick(btn, opt, level) {
+            initAudio();
+            if (opt.correct) {
+                playSound('success');
+                // Fill the blank on the blackboard with the chosen answer
+                const blank = $('code-content').querySelector('.border-dashed');
+                if (blank) {
+                    blank.textContent = opt.text;
+                    blank.className = 'bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded border border-emerald-500';
+                }
+                document.querySelectorAll('.option-btn').forEach(b => b.disabled = true);
+                btn.classList.add('bg-emerald-600', 'border-emerald-300');
+                completeLevel(level);
+            } else {
+                playSound('error');
+                btn.disabled = true;
+                btn.classList.add('opacity-40', 'line-through', 'border-red-500');
+                setProfText('Non è questa! Riprova, oppure chiedi un aiuto con la lampadina 💡');
+            }
+        }
+
+        function onBugLineClick(row, level) {
+            initAudio();
+            if (parseInt(row.dataset.line, 10) === level.bugLineIndex) {
+                playSound('success');
+                row.classList.add('bg-emerald-500/20', 'ring-1', 'ring-emerald-400');
+                document.querySelectorAll('#code-content .code-line').forEach(r => r.classList.remove('cursor-pointer'));
+                completeLevel(level);
+            } else {
+                playSound('error');
+                row.classList.add('bg-red-500/20');
+                setProfText('Quella riga è corretta! Guarda meglio le altre 🔍');
+            }
+        }
+
+        function completeLevel(level) {
+            const firstTime = !gameState.completedLevels.includes(level.id);
+            const reward = 1 + 2 * (level.difficulty || 1); // 3, 5 o 7 stelle
+            if (firstTime) {
+                gameState.completedLevels.push(level.id);
+                gameState.totalStars += reward;
+                saveProgress();
+            }
+            $('success-reward').textContent = firstTime
+                ? '+' + reward + ' stelle ⭐'
+                : 'Livello già completato: nessuna nuova stella';
+            renderHUD();
+            celebrateUntil = clock ? clock.getElapsedTime() + 1.6 : 0;
+
+            $('success-explanation').textContent = level.explanation;
+            const isLast = gameState.currentLevelIndex === LEVELS_DATA.length - 1;
+            $('btn-next-level').textContent = isLast ? 'RICOMINCIA 🔁' : 'PROSSIMO LIVELLO 🚀';
+            setTimeout(() => $('success-modal').classList.remove('hidden'), 700);
+        }
+
+        function buildLevelMenu() {
+            const grid = $('levels-grid');
+            grid.innerHTML = '';
+            LEVELS_DATA.forEach((lvl, i) => {
+                const done = gameState.completedLevels.includes(lvl.id);
+                const btn = document.createElement('button');
+                btn.className = 'text-left rounded-2xl p-3 border transition-all active:scale-95 ' +
+                    (done ? 'bg-emerald-500/15 border-emerald-500/50' : 'bg-slate-800/70 border-slate-600') +
+                    (i === gameState.currentLevelIndex ? ' ring-2 ring-cyan-400' : '');
+                const check = done ? '<i class="fa-solid fa-circle-check text-emerald-400"></i> ' : '';
+                btn.innerHTML = '<div class="text-[10px] font-bold uppercase text-gray-400"></div>' +
+                    '<div class="text-xs sm:text-sm font-bold text-white mt-1"></div>';
+                btn.firstChild.innerHTML = check + lvl.lang + ' · ' + (DIFFICULTY[lvl.difficulty] || DIFFICULTY[1]).short;
+                btn.lastChild.textContent = lvl.title;
+                btn.addEventListener('click', () => {
+                    initAudio();
+                    playSound('click');
+                    $('level-modal').classList.add('hidden');
+                    loadLevel(i);
+                });
+                grid.appendChild(btn);
+            });
+        }
+
+        function bindEvents() {
+            $('btn-hint').addEventListener('click', () => {
+                initAudio();
+                playSound('click');
+                setProfText('💡 ' + LEVELS_DATA[gameState.currentLevelIndex].hint);
+            });
+
+            $('btn-menu').addEventListener('click', () => {
+                initAudio();
+                playSound('click');
+                buildLevelMenu();
+                $('level-modal').classList.remove('hidden');
+            });
+
+            $('btn-close-modal').addEventListener('click', () => {
+                playSound('click');
+                $('level-modal').classList.add('hidden');
+            });
+
+            $('btn-next-level').addEventListener('click', () => {
+                playSound('click');
+                $('success-modal').classList.add('hidden');
+                const next = gameState.currentLevelIndex + 1;
+                loadLevel(next >= LEVELS_DATA.length ? 0 : next);
+            });
+
+            document.addEventListener('pointerdown', initAudio, { once: true });
+        }
+
+        // ---------- Start ----------
+        // The blackboard is rendered first so it appears even if WebGL is unavailable.
+        bindEvents();
+        loadLevel(0);
+        try {
+            init3DScene();
+        } catch (e) {
+            console.error('3D scene could not start:', e);
+            document.getElementById('canvas-container').style.background =
+                'linear-gradient(135deg, #0b132b, #172554)';
+        }
+    </script>
+</body>
+</html>
